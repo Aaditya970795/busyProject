@@ -6,6 +6,24 @@ import { StatusBadge } from "../components/StatusBadge";
 import { formatCurrency } from "../lib/format";
 import { ArrowLeftIcon, PlusIcon, TrashIcon } from "../components/icons";
 
+// Mirrors the server's transition table (server/src/controllers/order.controller.js) just
+// closely enough to decide which controls to show. This is a UI convenience only — the
+// server re-validates every transition itself and is the real source of truth.
+const NEXT_STATUS = {
+  placed: "accepted",
+  accepted: "preparing",
+  preparing: "ready",
+  ready: "served",
+};
+const NEXT_STATUS_LABEL = {
+  accepted: "Mark accepted",
+  preparing: "Start preparing",
+  ready: "Mark ready",
+  served: "Mark served",
+};
+const CANCELLABLE_STATUSES = new Set(["placed", "accepted"]);
+const OPEN_STATUSES = new Set(["placed", "accepted", "preparing", "ready"]);
+
 export function OrderDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -25,13 +43,35 @@ export function OrderDetailPage() {
   const [quantity, setQuantity] = useState("1");
   const [instructions, setInstructions] = useState("");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [voidingLineId, setVoidingLineId] = useState(null);
+  const [voidReason, setVoidReason] = useState("");
+
+  const invalidateOrder = () => queryClient.invalidateQueries({ queryKey: ["order", id] });
 
   const addLineMutation = useMutation({
     mutationFn: (payload) => api.post(`/orders/${id}/lines`, payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["order", id] });
+      invalidateOrder();
       setQuantity("1");
       setInstructions("");
+    },
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: (status) => api.patch(`/orders/${id}/status`, { status }),
+    onSuccess: () => {
+      invalidateOrder();
+      setConfirmingCancel(false);
+    },
+  });
+
+  const voidMutation = useMutation({
+    mutationFn: ({ lineId, reason }) => api.post(`/orders/${id}/lines/${lineId}/void`, { reason }),
+    onSuccess: () => {
+      invalidateOrder();
+      setVoidingLineId(null);
+      setVoidReason("");
     },
   });
 
@@ -54,10 +94,18 @@ export function OrderDetailPage() {
     });
   }
 
+  function handleVoidSubmit(e) {
+    e.preventDefault();
+    if (!voidReason.trim()) return;
+    voidMutation.mutate({ lineId: voidingLineId, reason: voidReason.trim() });
+  }
+
   if (isLoading) return <p className="text-sm text-slate-500">Loading…</p>;
   if (error) return <p className="text-sm text-red-600">{error.message}</p>;
 
   const { order, total } = data;
+  const nextStatus = NEXT_STATUS[order.status];
+  const isOpen = OPEN_STATUSES.has(order.status);
 
   return (
     <div>
@@ -69,39 +117,81 @@ export function OrderDetailPage() {
         Back to orders
       </Link>
 
-      <div className="mt-2 flex items-center justify-between">
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Table {order.tableNumber}</h1>
           <StatusBadge status={order.status} />
         </div>
 
-        {confirmingDelete ? (
-          <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-sm">
-            <span className="text-red-700">Delete this order?</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {nextStatus && (
             <button
-              onClick={() => deleteMutation.mutate()}
-              disabled={deleteMutation.isPending}
-              className="rounded-md bg-red-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+              onClick={() => statusMutation.mutate(nextStatus)}
+              disabled={statusMutation.isPending}
+              className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-50"
             >
-              {deleteMutation.isPending ? "Deleting…" : "Yes, delete"}
+              {NEXT_STATUS_LABEL[nextStatus]}
             </button>
+          )}
+
+          {CANCELLABLE_STATUSES.has(order.status) &&
+            (confirmingCancel ? (
+              <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm">
+                <span className="text-amber-700">Cancel this order?</span>
+                <button
+                  onClick={() => statusMutation.mutate("cancelled")}
+                  disabled={statusMutation.isPending}
+                  className="rounded-md bg-amber-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-amber-700 disabled:opacity-50"
+                >
+                  {statusMutation.isPending ? "Cancelling…" : "Yes, cancel"}
+                </button>
+                <button
+                  onClick={() => setConfirmingCancel(false)}
+                  className="rounded-md px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                >
+                  Never mind
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmingCancel(true)}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 transition-colors hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700"
+              >
+                Cancel order
+              </button>
+            ))}
+
+          {confirmingDelete ? (
+            <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-sm">
+              <span className="text-red-700">Delete this order?</span>
+              <button
+                onClick={() => deleteMutation.mutate()}
+                disabled={deleteMutation.isPending}
+                className="rounded-md bg-red-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleteMutation.isPending ? "Deleting…" : "Yes, delete"}
+              </button>
+              <button
+                onClick={() => setConfirmingDelete(false)}
+                className="rounded-md px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
             <button
-              onClick={() => setConfirmingDelete(false)}
-              className="rounded-md px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+              onClick={() => setConfirmingDelete(true)}
+              className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-700"
             >
-              Cancel
+              <TrashIcon />
+              Delete order
             </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => setConfirmingDelete(true)}
-            className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-700"
-          >
-            <TrashIcon />
-            Delete order
-          </button>
-        )}
+          )}
+        </div>
       </div>
+      {statusMutation.error && (
+        <p className="mt-2 text-right text-sm text-red-600">{statusMutation.error.message}</p>
+      )}
       {deleteMutation.error && (
         <p className="mt-2 text-right text-sm text-red-600">{deleteMutation.error.message}</p>
       )}
@@ -115,23 +205,76 @@ export function OrderDetailPage() {
               <th className="px-5 py-3 font-medium">Unit price</th>
               <th className="px-5 py-3 font-medium">Status</th>
               <th className="px-5 py-3 font-medium">Notes</th>
+              <th className="px-5 py-3 font-medium">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {order.lines.map((line) => (
-              <tr key={line.id} className="transition-colors hover:bg-slate-50">
+              <tr
+                key={line.id}
+                className={`transition-colors hover:bg-slate-50 ${line.status === "void" ? "opacity-50" : ""}`}
+              >
                 <td className="px-5 py-3 font-medium text-slate-900">{line.menuItem.name}</td>
                 <td className="px-5 py-3 text-slate-600">{line.quantity}</td>
                 <td className="px-5 py-3 text-slate-600">{formatCurrency(line.unitPrice)}</td>
                 <td className="px-5 py-3">
                   <StatusBadge status={line.status} />
                 </td>
-                <td className="px-5 py-3 text-slate-500">{line.specialInstructions || "—"}</td>
+                <td className="px-5 py-3 text-slate-500">
+                  {line.status === "void" ? (
+                    <span className="italic text-red-600">Voided: {line.voidReason}</span>
+                  ) : (
+                    line.specialInstructions || "—"
+                  )}
+                </td>
+                <td className="px-5 py-3">
+                  {line.status === "active" &&
+                    isOpen &&
+                    (voidingLineId === line.id ? (
+                      <form onSubmit={handleVoidSubmit} className="flex items-center gap-2">
+                        <input
+                          autoFocus
+                          value={voidReason}
+                          onChange={(e) => setVoidReason(e.target.value)}
+                          placeholder="Reason"
+                          required
+                          className="w-32 rounded-md border border-slate-300 px-2 py-1 text-xs focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500"
+                        />
+                        <button
+                          type="submit"
+                          disabled={voidMutation.isPending || !voidReason.trim()}
+                          className="rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+                        >
+                          Void
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setVoidingLineId(null);
+                            setVoidReason("");
+                          }}
+                          className="text-xs text-slate-500 hover:text-slate-700"
+                        >
+                          Cancel
+                        </button>
+                      </form>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setVoidingLineId(line.id);
+                          setVoidReason("");
+                        }}
+                        className="rounded-md border border-slate-300 px-2.5 py-1 text-xs text-slate-600 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+                      >
+                        Void
+                      </button>
+                    ))}
+                </td>
               </tr>
             ))}
             {order.lines.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-5 py-10 text-center text-slate-400">
+                <td colSpan={6} className="px-5 py-10 text-center text-slate-400">
                   No items on this order yet — add one below.
                 </td>
               </tr>
@@ -143,8 +286,9 @@ export function OrderDetailPage() {
           <span className="text-lg font-semibold text-slate-900">{formatCurrency(total)}</span>
         </div>
       </div>
+      {voidMutation.error && <p className="mt-2 text-sm text-red-600">{voidMutation.error.message}</p>}
 
-      {menuData && (
+      {menuData && isOpen && (
         <form
           onSubmit={handleAddLine}
           className="mt-6 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
@@ -197,6 +341,11 @@ export function OrderDetailPage() {
             Add to order
           </button>
         </form>
+      )}
+      {!isOpen && (
+        <p className="mt-6 text-sm text-slate-400">
+          This order is {order.status} — no further changes can be made to it.
+        </p>
       )}
       {addLineMutation.error && (
         <p className="mt-2 text-sm text-red-600">{addLineMutation.error.message}</p>

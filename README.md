@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Restaurant Order Management System
 
 A system to replace paper tickets at a restaurant. Managers own the menu, waiters run orders from
@@ -57,3 +58,6 @@ Mark each honestly. Partial is fine — say what is partial.
 ## What are you least happy with in this codebase, and why?
 
 
+=======
+# busyProject
+>>>>>>> 1e6d33b453effbbebe65be3ec83d6a47a7120a72

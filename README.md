@@ -1,9 +1,8 @@
-<<<<<<< HEAD
 # Restaurant Order Management System
 
 A system to replace paper tickets at a restaurant. Managers own the menu, waiters run orders from
-the table to the kitchen and back. Still early — right now it's just the login system and the
-project skeleton, more gets added task by task (see `docs/plan.md` for the build order).
+the table to the kitchen and back. Still early — more gets added task by task (see `docs/plan.md`
+for the build order).
 
 ## Running it locally
 
@@ -48,16 +47,13 @@ Mark each honestly. Partial is fine — say what is partial.
 | # | Goal | Status | Notes |
 |---|------|--------|-------|
 | 1 | Project setup, database, and login system (register/login/logout, role-based access) | Done | Registered a manager and a waiter, logged in as both, checked the role comes back right, checked logged-out users get rejected — all actually tested, not just built. |
-
+| 2 | Menu management (manager-only CRUD + archive) and orders/order lines with a server-computed total | Done | Created menu items as a manager, confirmed a waiter gets 403 trying to create one, created an order as a waiter, added two lines, and confirmed the running total came back exactly right ($33.48 for 2×$9.99 + 3×$4.50). No status-transition rules or voiding yet — that's a later task on purpose. |
 
 ## How much time did you actually spend?
+
 
 ## What would you do next, with another 12 hours?
 
 
 ## What are you least happy with in this codebase, and why?
 
-
-=======
-# busyProject
->>>>>>> 1e6d33b453effbbebe65be3ec83d6a47a7120a72

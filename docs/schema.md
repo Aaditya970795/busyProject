@@ -28,10 +28,49 @@ enum Role {
 This is a real Postgres enum type, not just a text column with a check — so it's genuinely
 impossible to put anything other than "manager" or "waiter" in that column, even by accident.
 
+## The Menu Item table (added in Task 2)
+
+Managers can add things to the menu now. Each menu item has:
+
+- a name
+- a price (stored as an exact number, not a rough decimal, so money never gets rounded wrong)
+- whether it's currently available to order or not
+- whether it's been archived (basically hidden, but not deleted — I kept it in the database so old
+  orders that used it still make sense)
+- when it was created and when it was last changed
+
+Nothing gets deleted for real here. Archiving just hides an item from the everyday menu list, but a
+manager can still look at archived items and bring one back if they change their mind.
+
+## The Order table and Order Line table (added in Task 2)
+
+An order belongs to one table in the restaurant and one waiter (whoever created it). It also has a
+status — more on that below, since Task 3 built out the whole rules around that.
+
+Each order can have many order lines, and each line is basically "this many of this menu item, with
+this note." A line remembers the price the item had at the exact moment it was added to the order —
+not whatever the menu item costs right now. That way, if a manager changes a price later, old orders
+still show what the customer actually agreed to pay at the time.
+
+A line can also be voided (basically cancelled) with a reason, if a waiter added the wrong thing by
+mistake or a customer changed their mind. Voided lines never get removed from the database either —
+they just get marked as voided so there's a record of what happened, and they stop counting toward
+the order's total.
+
 ## Relations between tables
 
 None yet — there's only the one table so far. This will obviously grow once menu items and orders
 show up.
+
+That was true back when there was only the User table. Since Task 2, a few real connections exist
+now:
+
+- One waiter can create many orders.
+- One order can have many order lines.
+- One menu item can show up on many order lines (since lots of orders can include the same dish).
+
+Also worth knowing: if an order ever gets deleted, all of its lines get deleted along with it
+automatically — I don't have to clean those up by hand, the database takes care of it.
 
 ## Where do I check things — the app or the database?
 
@@ -46,5 +85,14 @@ show up.
   two signups could sneak through with the same email at the same time.
 - **Password needs to be at least 8 characters**: this one's app-side only, since the database only
   ever sees the hashed version, which doesn't really have a "length" to check.
-
-## What would slow down first if this had 100x more users
+- **Menu item prices can't be negative**: I check this in the code, not the database. I thought
+  about making the database itself refuse a negative price, but that would have meant hand-editing
+  the migration file every time, which felt fragile and easy to forget. Checking it in the code
+  keeps everything in one place and gives a clear error message instead of a confusing database
+  error.
+- **Order status can only move forward one step at a time, and only in the right order**: this is
+  all checked in the code before anything gets saved. The database will happily store any of the six
+  statuses, but it has no idea which order they're supposed to happen in — that logic lives in the
+  code.
+- **Voiding a line always needs a reason**: checked in the code — if you don't type a reason, the
+  request gets rejected before it ever touches the database.

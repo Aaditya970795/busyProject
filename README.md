@@ -48,6 +48,7 @@ Mark each honestly. Partial is fine — say what is partial.
 |---|------|--------|-------|
 | 1 | Project setup, database, and login system (register/login/logout, role-based access) | Done | Registered a manager and a waiter, logged in as both, checked the role comes back right, checked logged-out users get rejected — all actually tested, not just built. |
 | 2 | Menu management (manager-only CRUD + archive) and orders/order lines with a server-computed total | Done | Created menu items as a manager, confirmed a waiter gets 403 trying to create one, created an order as a waiter, added two lines, and confirmed the running total came back exactly right ($33.48 for 2×$9.99 + 3×$4.50). No status-transition rules or voiding yet — that's a later task on purpose. |
+| 3 | Order status rules (placed → accepted → preparing → ready → served, plus cancelling and voiding a single item) | Done | Tried every wrong move I could think of first — skipping a step, going backwards, cancelling once the kitchen had started, voiding an item on a finished order, voiding with no reason — and each one got rejected with a clear message saying why. Then walked one order through the full path to served and checked the total updated correctly along the way. |
 
 ## How much time did you actually spend?
 

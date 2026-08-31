@@ -45,5 +45,69 @@ newer `import`/`export` style instead.
 After you fill out the register form, it just takes you to the login page — it doesn't sign you in
 right away. You have to type your new password in and log in like normal.
 
+---
+
+6. Kept the price check for menu items in the code, not the database
+
+I could have made the database itself refuse a negative price. Instead I check it in the code before
+anything gets saved. Doing it in the database would have meant hand-editing the migration file every
+time, which felt fragile — the code was already the place every other rule like this lived, so I
+kept it consistent.
+
+---
+
+7. Adding the same item twice combines it into one line instead of two
+
+If a waiter adds "2x Garlic Bread" and then adds "1x Garlic Bread" again later, it now shows up as
+one line with a quantity of 3, not two separate lines. This only happens if the price hasn't changed
+since the first time it was added — if the price changed in between, it stays as two separate lines
+on purpose, so the order still shows exactly what was charged at each point in time.
+
+---
+
+8. Archived menu items can be seen and brought back, not just hidden forever
+
+A manager can flip a switch to see items they've archived, and un-archive one if they didn't mean to
+hide it. Before this, archiving an item made it disappear with no way to find it again, which felt
+like a trap.
+
+---
+
+9. Switched the currency symbol to rupees
+
+Prices now show with a ₹ symbol instead of a $ sign, formatted the way Indian currency is normally
+written.
+
+---
+
+10. Orders can be deleted, not just archived
+
+A waiter can fully delete an order if it was started by mistake, on top of the existing archive
+option. Deleting asks for a confirmation first, since it can't be undone — archiving already existed
+for cases where you want to hide something but keep it around.
+
+---
+
+11. Order status can only move forward one step at a time, never skipping ahead or going backwards
+
+An order has to go placed, then accepted, then preparing, then ready, then served, in that exact
+order, one step at a time. You can't jump from placed straight to ready, and you can't move
+backwards once you've gone forward.
+
+---
+
+12. Cancelling only works early on, never once the kitchen has started
+
+An order can only be cancelled while it's still placed or accepted. Once it moves to preparing, it
+can't be cancelled anymore — at that point the food is already being made.
+
+---
+
+13. Blocked adding new items to an order that's already been served or cancelled
+
+I noticed while testing that you could still add items to an order after it was cancelled, which
+didn't make sense — why would you add something to an order that's already dead? I closed that off
+so items can only be added while the order is still open.
+
 
 

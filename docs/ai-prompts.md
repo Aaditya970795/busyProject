@@ -61,4 +61,58 @@ actually working, not just the API responding.
 - Even after fixing that, the first attempt still failed to connect — turned out my password itself
   was just wrong/outdated, not a formatting issue. Once I double-checked it in Supabase, it worked.
 
+---
+
+## Task 2 — Menu management and orders
+
+### What I asked for
+
+I asked for the actual restaurant features to go on top of the login system: managers being able to
+add, edit, and archive menu items (with waiters only allowed to look, not touch), and waiters being
+able to start an order for a table, add items to it with a running total that the server works out
+itself. I told it not to build anything about changing an order's status yet, and to ask me before
+touching the real database.
+
+### What it came back with
+
+Everything got built and it walked me through testing it — made two menu items as a manager, checked
+that a waiter gets blocked from creating one, made an order as a waiter, added two items to it, and
+checked the total came back exactly right.
+
+### What I had to catch or fix along the way
+
+- After I tried it myself, I found a few real problems: archiving a menu item made it vanish with no
+  way to get it back, adding the same item twice created two separate lines instead of combining
+  them, and prices were showing in dollars instead of rupees. I asked for all three to be fixed, plus
+  a general visual cleanup.
+- I also asked for a way to delete an order outright, not just archive it, in case a waiter starts
+  one by mistake. That got added with a confirmation step so it's not too easy to do by accident.
+
+---
+
+## Task 3 — Order status and voiding items
+
+### What I asked for
+
+I gave it the exact rules for how an order should move through its stages — placed, accepted,
+preparing, ready, served, one step at a time — and that cancelling should only be allowed early on
+(placed or accepted), never once the kitchen has started. I also asked for a way to void a single
+item off an order with a required reason, as long as the order isn't finished or cancelled yet. I
+told it to reject anything that breaks these rules with a clear message explaining why, not just a
+generic error.
+
+### What it came back with
+
+It built the status changes and the void feature, and tried every wrong move it could think of before
+telling me it was done — skipping steps, going backwards, cancelling too late, voiding an item on a
+finished order, voiding with no reason — and showed me that each one got rejected with a message
+explaining why. Then it walked a real order through the whole path from placed to served and showed
+the total updating correctly along the way.
+
+### What I had to catch or fix along the way
+
+Nothing I had to catch this time — but it caught something on its own while testing: it noticed you
+could still add new items to an order that had already been cancelled, which quietly broke the whole
+point of cancelling something. It fixed that itself and pointed it out to me afterward.
+
 

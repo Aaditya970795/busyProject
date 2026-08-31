@@ -64,6 +64,46 @@ both folders).
    way if someone got deleted from the system, their old token stops working right away instead of
    staying valid until it expires.
 
+## Menu management (added in Task 2)
+
+Managers can now add, edit, and archive menu items — waiters can only look at the menu, not change
+it. That rule isn't just hidden in the interface, it's checked on the server too, so even if someone
+tried to fake a request, the server would still say no if you're not a manager.
+
+The menu page also lets a manager peek at archived items and bring one back, instead of losing it
+for good.
+
+## Orders and order lines (added in Task 2)
+
+A waiter can start an order for a table, then add items to it one at a time. If the exact same item
+gets added twice, it doesn't create two separate lines — it just adds to the quantity of the one
+that's already there, as long as the price hasn't changed since the first time it was added.
+
+Every order shows a running total, and that total is calculated on the server using exact math, not
+regular decimal math — this matters because normal decimal math in most programming languages can
+get money amounts slightly wrong after enough additions, and nobody wants a bill that's a fraction
+of a cent off.
+
+A waiter can also delete an order entirely if it was started by mistake, before anything real happens
+with it. That asks for a confirmation first so it's hard to do by accident.
+
+## How an order moves through its life (added in Task 3)
+
+Every order goes through a set path: placed, then accepted, then preparing, then ready, then served —
+one step at a time, in that order. You can't jump ahead (like going straight from placed to ready),
+and you can't go backwards either. The one exception is cancelling — an order can be cancelled, but
+only while it's still placed or accepted. Once the kitchen has actually started preparing it, it's
+too late to cancel the whole thing.
+
+Any single item on the order can also be voided (basically taken off the bill) for as long as the
+order is still open — meaning it hasn't been served or cancelled yet. Voiding always needs a short
+reason, and it never actually deletes anything — it just marks that item as voided so there's a
+record of what happened and why.
+
+All of this is enforced on the server, not just in the interface. The buttons on screen only show
+you the moves that are actually allowed right now, but even if someone bypassed the interface
+completely, the server would still refuse anything that breaks these rules and explain why.
+
 ## What's not built yet, on purpose
 
 - No menu, no orders, no dashboard content — `/dashboard` is literally just an empty page for now.

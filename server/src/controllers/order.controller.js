@@ -8,6 +8,49 @@ function computeTotal(lines) {
     .toFixed(2);
 }
 
+const ORDER_STATUSES = ["placed", "accepted", "preparing", "ready", "served", "cancelled"];
+
+// An order is "open" (voidable, still changeable) for as long as it hasn't reached one of
+// the two terminal states.
+const OPEN_STATUSES = new Set(["placed", "accepted", "preparing", "ready"]);
+
+// Explicit map of "current status" -> the set of statuses it's legal to move to next.
+//
+// The brief's own example ("don't allow skipping straight from Placed to Ready") settles the
+// ambiguous case: the lifecycle only advances one step at a time
+// (placed -> accepted -> preparing -> ready -> served), never skipping ahead and never moving
+// backward. Cancellation is only legal while the order hasn't started being prepared yet
+// (placed or accepted) — once it's preparing or beyond, `cancelled` is off the table for good.
+// `served` and `cancelled` are both terminal: nothing is legal from either.
+const ALLOWED_TRANSITIONS = {
+  placed: ["accepted", "cancelled"],
+  accepted: ["preparing", "cancelled"],
+  preparing: ["ready"],
+  ready: ["served"],
+  served: [],
+  cancelled: [],
+};
+
+// Returns null if the transition is legal, or a human-readable reason it isn't.
+function describeIllegalTransition(currentStatus, requestedStatus) {
+  if (!ORDER_STATUSES.includes(requestedStatus)) {
+    return `"${requestedStatus}" is not a valid order status.`;
+  }
+  if (ALLOWED_TRANSITIONS[currentStatus].includes(requestedStatus)) {
+    return null;
+  }
+  if (currentStatus === requestedStatus) {
+    return `Order is already ${currentStatus}.`;
+  }
+  if (!OPEN_STATUSES.has(currentStatus)) {
+    return `Cannot change status: the order is already ${currentStatus}, which is final.`;
+  }
+  if (requestedStatus === "cancelled") {
+    return `Cannot cancel an order that is already ${currentStatus} — cancellation is only allowed while an order is placed or accepted.`;
+  }
+  return `Cannot move an order from ${currentStatus} to ${requestedStatus} — status can only advance one step at a time.`;
+}
+
 export async function createOrder(req, res) {
   const { table_number } = req.body ?? {};
 
@@ -50,6 +93,28 @@ export async function getOrder(req, res) {
   return res.json({ order, total: computeTotal(order.lines) });
 }
 
+export async function updateStatus(req, res) {
+  const { id } = req.params;
+  const { status } = req.body ?? {};
+
+  if (typeof status !== "string" || !status) {
+    return res.status(400).json({ error: "status is required" });
+  }
+
+  const order = await prisma.order.findUnique({ where: { id } });
+  if (!order) {
+    return res.status(404).json({ error: "Order not found" });
+  }
+
+  const rejectionReason = describeIllegalTransition(order.status, status);
+  if (rejectionReason) {
+    return res.status(400).json({ error: rejectionReason });
+  }
+
+  const updated = await prisma.order.update({ where: { id }, data: { status } });
+  return res.json({ order: updated });
+}
+
 function mergeInstructions(existing, incoming) {
   if (!incoming) return existing;
   if (!existing) return incoming;
@@ -74,6 +139,11 @@ export async function addLine(req, res) {
   const order = await prisma.order.findUnique({ where: { id } });
   if (!order) {
     return res.status(404).json({ error: "Order not found" });
+  }
+  if (!OPEN_STATUSES.has(order.status)) {
+    return res
+      .status(400)
+      .json({ error: `Cannot add items to an order that is already ${order.status}.` });
   }
 
   const menuItem = await prisma.menuItem.findUnique({ where: { id: menu_item_id } });
@@ -120,6 +190,41 @@ export async function addLine(req, res) {
   });
 
   return res.status(201).json({ orderLine });
+}
+
+export async function voidLine(req, res) {
+  const { id, lineId } = req.params;
+  const { reason } = req.body ?? {};
+
+  if (typeof reason !== "string" || !reason.trim()) {
+    return res.status(400).json({ error: "reason is required to void a line" });
+  }
+
+  const order = await prisma.order.findUnique({ where: { id } });
+  if (!order) {
+    return res.status(404).json({ error: "Order not found" });
+  }
+  if (!OPEN_STATUSES.has(order.status)) {
+    return res
+      .status(400)
+      .json({ error: `Cannot void a line on an order that is already ${order.status}.` });
+  }
+
+  const line = await prisma.orderLine.findUnique({ where: { id: lineId } });
+  if (!line || line.orderId !== id) {
+    return res.status(404).json({ error: "Order line not found on this order" });
+  }
+  if (line.status === "void") {
+    return res.status(400).json({ error: "This line has already been voided." });
+  }
+
+  const orderLine = await prisma.orderLine.update({
+    where: { id: lineId },
+    data: { status: "void", voidReason: reason.trim() },
+    include: { menuItem: true },
+  });
+
+  return res.json({ orderLine });
 }
 
 async function setArchived(req, res, isArchived) {

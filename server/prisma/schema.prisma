@@ -15,6 +15,20 @@ enum Role {
   waiter
 }
 
+enum OrderStatus {
+  placed
+  accepted
+  preparing
+  ready
+  served
+  cancelled
+}
+
+enum LineStatus {
+  active
+  void
+}
+
 model User {
   id           String   @id @default(uuid())
   name         String
@@ -22,4 +36,45 @@ model User {
   passwordHash String
   role         Role
   createdAt    DateTime @default(now())
+
+  orders Order[]
+}
+
+model MenuItem {
+  id          String   @id @default(uuid())
+  name        String
+  price       Decimal  @db.Decimal(10, 2)
+  isAvailable Boolean  @default(true)
+  isArchived  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orderLines OrderLine[]
+}
+
+model Order {
+  id              String      @id @default(uuid())
+  tableNumber     Int
+  status          OrderStatus @default(placed)
+  primaryWaiterId String
+  primaryWaiter   User        @relation(fields: [primaryWaiterId], references: [id])
+  isArchived      Boolean     @default(false)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  lines OrderLine[]
+}
+
+model OrderLine {
+  id                  String     @id @default(uuid())
+  orderId             String
+  order               Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId          String
+  menuItem            MenuItem   @relation(fields: [menuItemId], references: [id])
+  quantity            Int
+  specialInstructions String?
+  unitPrice           Decimal    @db.Decimal(10, 2)
+  status              LineStatus @default(active)
+  voidReason          String?
+  createdAt           DateTime   @default(now())
 }

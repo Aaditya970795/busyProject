@@ -1,0 +1,23 @@
+import { Router } from "express";
+import {
+  createOrder,
+  listOrders,
+  getOrder,
+  addLine,
+  archiveOrder,
+  unarchiveOrder,
+  deleteOrder,
+} from "../controllers/order.controller.js";
+import { requireAuth } from "../middleware/auth.js";
+
+const router = Router();
+
+router.post("/", requireAuth, createOrder);
+router.get("/", requireAuth, listOrders);
+router.get("/:id", requireAuth, getOrder);
+router.post("/:id/lines", requireAuth, addLine);
+router.post("/:id/archive", requireAuth, archiveOrder);
+router.post("/:id/unarchive", requireAuth, unarchiveOrder);
+router.delete("/:id", requireAuth, deleteOrder);
+
+export default router;

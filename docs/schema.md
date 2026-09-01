@@ -101,6 +101,13 @@ to this new table. Whether a table is "occupied" gets worked out by comparing `T
 the `tableNumber` on any order that's still open — that comparison happens in the code, not as a
 database relationship.
 
+## Indexes added for search and sorting (added in Task 6)
+
+Two indexes went on the Order table once the order list started supporting filtering and sorting by
+status and by placed date: `@@index([status])` and `@@index([createdAt])`. Without them, every
+filtered or sorted request would need a full table scan to find matches; with a lot of orders sitting
+in the table, that's the difference between a search that feels instant and one that doesn't.
+
 ## Where do I check things — the app or the database?
 
 - **Role has to be valid**: checked in both places on purpose. The database physically can't store
@@ -131,3 +138,11 @@ database relationship.
 - **A table has to actually exist and not already be occupied before an order can be opened on it**:
   checked in the code, in `POST /api/orders`, every single time — not just something the frontend's
   table picker happens to prevent.
+- **What a waiter can see in the order list vs. what they filtered for**: checked in the code — the
+  visibility rule and any filters the caller passed (status, waiter, date, table search) are merged
+  into the exact same `where` clause, so there's no way to filter your way into seeing an order you
+  couldn't otherwise see.
+- **Table-number text search**: mostly the database's job — a small raw SQL query does the actual
+  substring match (something a plain `where` clause can't express against a number column), but it's
+  written with Prisma's parameterized `$queryRaw`, so user input never gets concatenated into the SQL
+  string directly.

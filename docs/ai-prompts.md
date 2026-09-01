@@ -193,4 +193,45 @@ Separately, after all that, I hit a proxy error on the client (`ECONNREFUSED`) b
 down the backend server after finishing its verification and I hadn't noticed it was still off — that
 one was on me for not restarting it myself, and it just started the server back up.
 
+---
+
+## Task 6 — Order search, filters, sort, and pagination
+
+### What I asked for
+
+This one came back formally numbered again — task 5 of 10 in the brief, even though it's the sixth
+thing in this log since table management landed as an unnumbered task in between. I asked for the
+order list to get real search, filters (status, waiter, date), sorting (placed time, status, table),
+and pagination that reports the total match count — all server-side, no fetching everything into the
+browser and filtering it there. I gave it the exact query param shape I wanted and pointed out the
+specific problem with searching a number column as text, laying out two honest ways to handle it and
+asking it to pick one and tell me why. I also told it to reuse whatever visibility rule already
+existed for who can see which orders rather than invent a second one, and to add whatever indexes it
+thought the new filtering/sorting would need — asking me first, since that's a real migration.
+
+### What it came back with
+
+It built the whole thing — search, three filters, three sort options, and pagination with a real
+total count — behind the existing `GET /api/orders` endpoint, and it picked the raw-SQL-for-just-the-
+table-search approach, explaining why the numeric-range alternative couldn't do genuine substring
+matching. For visibility, it noticed the existing rule only lived inside the "my orders" route and
+pulled it out into one shared function instead of copying it, then used that same function both for
+what a waiter is allowed to see in the main list and for the new "filter by waiter" option — so a
+waiter filtering for another waiter's orders can't see anything they weren't already allowed to see.
+It proved this with real requests: seeded over a dozen orders across two waiters and a manager with
+different tables/statuses, showed a combined search+status+sort+page-2 request returning the exact
+expected slice with a consistent total, and specifically showed a waiter filtering by another
+waiter's id only got back the one order they actually shared, not that waiter's whole list.
+
+It also pointed out on its own that this makes the "my orders" tab from Task 4 redundant for waiters,
+since the main list now shows them the same thing, and removed the tab rather than leave confusing
+dead UI in place.
+
+### What I had to catch or fix along the way
+
+Nothing to fix — but it flagged something itself: applying visibility to the main order list makes a
+line in `docs/architecture.md` from Task 4 out of date (it used to say listing orders was open to
+everyone). It didn't rewrite that line on its own since I hadn't asked for a docs pass that turn, just
+told me about it — which is exactly what I wanted.
+
 

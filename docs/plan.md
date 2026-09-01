@@ -65,3 +65,21 @@ Why this came after Task 4: it's the same category of thing as Task 4 — tighte
 to do what around an order — just aimed at the table number this time instead of who can act on the
 order itself.
 
+### Task 6 — Order search, filters, sort, and pagination
+
+The order list (`GET /api/orders`) went from "return everything, unfiltered" to a real search: a text
+search over the table number, filters for status/waiter/date, sorting by placed time/status/table,
+and pagination that reports the total match count — all done server-side, not by fetching everything
+into the browser and slicing it up there. It also closed a visibility gap left over from Task 4: the
+list now only shows a waiter what they're actually allowed to see, the same rule their "my orders"
+list already used, instead of every order in the restaurant.
+
+A quick numbering note: the brief for this one called itself "task 5 of 10," but Task 5 in this log
+is already taken by table management, which wasn't a formally numbered task when it landed in
+between. Rather than renumber anything already written here, this one just became Task 6 in this log.
+
+Why this came after table management: search/filter/sort is the kind of thing that matters more once
+there's actually enough going on in the restaurant to need it — tables, collaborators, and the full
+order lifecycle all needed to exist first for a "find me the accepted orders on table 12 from today"
+search to mean anything.
+

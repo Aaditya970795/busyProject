@@ -1,9 +1,12 @@
 import { prisma } from "../lib/prisma.js";
-import { canActOnOrder } from "../lib/orderAccess.js";
+import { canActOnOrder, orderInvolvesWaiter } from "../lib/orderAccess.js";
 import { OPEN_STATUSES } from "../lib/orderStatus.js";
 import { Prisma } from "../../generated/prisma/client.ts";
 
 const WAITER_PUBLIC_SELECT = { id: true, name: true, email: true, role: true };
+const SORT_FIELDS = { placed: "createdAt", status: "status", table: "tableNumber" };
+const DEFAULT_PAGE_SIZE = 20;
+const MAX_PAGE_SIZE = 100;
 
 function computeTotal(lines) {
   return lines
@@ -84,25 +87,96 @@ export async function createOrder(req, res) {
   return res.status(201).json({ order });
 }
 
+// Builds the list of order ids whose table number contains `search` as a substring. tableNumber
+// is an Int, and Prisma's `contains` filter only works on string columns, so a partial text match
+// against it can't be expressed as a plain `where` clause. Rather than drop the whole query to raw
+// SQL, this isolates the raw SQL to just this one lookup (using Prisma's tagged-template
+// `$queryRaw`, which parameterizes `search` safely — never string-concatenated) and feeds the
+// resulting ids back into a normal `where: { id: { in: [...] } }`, so every other filter, the
+// sort, the pagination, and the count stay ordinary Prisma query-builder code.
+async function findOrderIdsByTableNumber(search) {
+  const rows = await prisma.$queryRaw`SELECT "id" FROM "Order" WHERE "tableNumber"::text ILIKE ${`%${search}%`}`;
+  return rows.map((row) => row.id);
+}
+
 export async function listOrders(req, res) {
-  const orders = await prisma.order.findMany({
-    where: { isArchived: false },
-    orderBy: { createdAt: "desc" },
-  });
-  return res.json({ orders });
+  const { search, status, waiter, date, sort = "placed", dir = "desc" } = req.query;
+
+  if (!(sort in SORT_FIELDS)) {
+    return res.status(400).json({ error: `sort must be one of: ${Object.keys(SORT_FIELDS).join(", ")}` });
+  }
+  if (dir !== "asc" && dir !== "desc") {
+    return res.status(400).json({ error: "dir must be 'asc' or 'desc'" });
+  }
+  if (status !== undefined && !ORDER_STATUSES.includes(status)) {
+    return res.status(400).json({ error: `status must be one of: ${ORDER_STATUSES.join(", ")}` });
+  }
+
+  const page = parseInt(req.query.page ?? "1", 10);
+  const pageSize = parseInt(req.query.pageSize ?? String(DEFAULT_PAGE_SIZE), 10);
+  if (!Number.isInteger(page) || page < 1) {
+    return res.status(400).json({ error: "page must be a positive integer" });
+  }
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
+    return res.status(400).json({ error: `pageSize must be a positive integer up to ${MAX_PAGE_SIZE}` });
+  }
+
+  const and = [{ isArchived: false }];
+
+  // Visibility: a manager sees every order; a waiter only sees orders they're attached to —
+  // the same rule listMyOrders uses (see orderInvolvesWaiter), just applied to the caller
+  // instead of an arbitrary target, so this list can never return an order the viewer
+  // couldn't otherwise see, no matter what filters they combine it with.
+  if (req.user.role !== "manager") {
+    and.push(orderInvolvesWaiter(req.user.id));
+  }
+
+  if (status !== undefined) {
+    and.push({ status });
+  }
+
+  if (waiter !== undefined) {
+    and.push(orderInvolvesWaiter(waiter));
+  }
+
+  if (date !== undefined) {
+    const start = new Date(`${date}T00:00:00.000Z`);
+    if (Number.isNaN(start.getTime())) {
+      return res.status(400).json({ error: "date must be a valid YYYY-MM-DD date" });
+    }
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    and.push({ createdAt: { gte: start, lt: end } });
+  }
+
+  if (search !== undefined && search.trim() !== "") {
+    and.push({ id: { in: await findOrderIdsByTableNumber(search.trim()) } });
+  }
+
+  const where = { AND: and };
+
+  const [data, total] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      include: { primaryWaiter: { select: { id: true, name: true } } },
+      orderBy: { [SORT_FIELDS[sort]]: dir },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.order.count({ where }),
+  ]);
+
+  return res.json({ data, total, page, pageSize });
 }
 
 // A waiter's own worklist: every order where they're the primary waiter or a collaborator.
 // Exposed to every authenticated user rather than gated to waiters — a manager is never
-// primary and can't be added as a collaborator (see addCollaborator), so this just comes
-// back empty for them. Simpler than special-casing the route, and the frontend only surfaces
-// the "My orders" tab to waiters anyway since `GET /orders` already gives managers everything.
+// primary and can't be added as a collaborator (see addCollaborator), so this just comes back
+// empty for them. Since `GET /orders` visibility now applies this exact same rule to a waiter's
+// results, this route is redundant with an un-filtered `GET /orders` for a waiter — kept as-is
+// since removing it wasn't asked for, but the frontend no longer has a separate use for it.
 export async function listMyOrders(req, res) {
   const orders = await prisma.order.findMany({
-    where: {
-      isArchived: false,
-      OR: [{ primaryWaiterId: req.user.id }, { collaborators: { some: { waiterId: req.user.id } } }],
-    },
+    where: { isArchived: false, ...orderInvolvesWaiter(req.user.id) },
     orderBy: { createdAt: "desc" },
   });
   return res.json({ orders });

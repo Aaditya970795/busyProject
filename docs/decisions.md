@@ -165,5 +165,35 @@ straight against the database with a plain database client, then recorded in Pri
 history table by hand so its tooling wouldn't get confused later. `prisma migrate status` confirmed
 everything still lined up afterward.
 
+---
+
+20. `GET /api/orders` now enforces the same visibility a waiter already had on `/orders/mine`
+
+This wasn't asked for as a separate thing — the brief for order search said the list should "respect
+existing visibility," and the only existing visibility rule in the app was the primary-waiter-or-
+collaborator one from Task 4's "my orders" route. Applying it here means a waiter's search results
+can never include an order they have no relationship to, even if they explicitly filter for it.
+
+---
+
+21. Table-number search uses one raw SQL query instead of a numeric-range trick
+
+`tableNumber` is an integer, and Prisma's "contains" filter only works on text columns. The other
+honest option was computing numeric ranges to approximate a prefix match, but that still can't do a
+real substring match (searching "1" wouldn't find table 21), and gets fiddly fast. One raw,
+parameterized query that casts the column to text and does a genuine substring match was more honest
+about what "search" actually means here, and it stays isolated to a single query instead of touching
+the rest of the filtering/sorting/pagination logic.
+
+---
+
+22. Removed the "All orders / My orders" tabs from the orders page
+
+Once `GET /api/orders` started applying the same visibility rule a waiter's "My orders" list already
+used, the two tabs would show a waiter the exact same set of orders under two different labels. Kept
+the `/orders/mine` route itself (removing a working endpoint wasn't asked for), but the tab toggle in
+the UI was just confusing dead weight at that point, so it came out in favor of the one filterable
+list.
+
 
 

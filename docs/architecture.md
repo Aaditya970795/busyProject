@@ -127,6 +127,9 @@ Reading an order (`GET /api/orders/:id`) and listing every order (`GET /api/orde
 to anyone logged in — this task only tightened who can change something about an order, not who can
 look at one.
 
+*(Update, Task 6: this changed — `GET /api/orders` now applies this exact visibility rule to its
+results too. See the Task 6 section below.)*
+
 ## Table management (added in Task 5)
 
 Before this, a waiter typed a table number by hand when starting a new order — nothing stopped a
@@ -152,6 +155,33 @@ plain number, exactly like it's been since Task 2. Tying them together with a re
 have meant backfilling every existing order with a matching table row before the migration could
 even run; keeping them separate meant this whole feature could be added without touching the `Order`
 table at all.
+
+## Order search, filters, sort, and pagination (added in Task 6)
+
+`GET /api/orders` used to just return every non-archived order, unfiltered, to whoever asked — a gap
+left over from Task 4, since tightening who could *act* on an order never touched who could *see* one
+in the list. This task closed that gap as part of building real search: the list now applies the
+exact same visibility rule as `GET /api/orders/mine` — a manager sees everything, a waiter only sees
+orders where they're the primary waiter or a collaborator — merged into the same `where` clause as
+every other filter, not applied afterward on the results. That's on purpose: a waiter combining
+filters (say, searching for a specific table, or filtering by another waiter) can never get back an
+order they weren't already allowed to see, no matter what they search for.
+
+On top of that visibility floor, the list now takes `search` (table number), `status`, `waiter`,
+`date`, `sort` (`placed`, `status`, or `table`), `dir`, `page`, and `pageSize`, all validated, and
+returns the matching page alongside the total number of matches (`{ data, total, page, pageSize }`)
+so the frontend can show real pagination instead of guessing.
+
+The one fiddly part was searching by table number as text — `tableNumber` is stored as a plain
+integer, and Prisma can't do a partial ("contains") match against a number column. Rather than drop
+the whole query to raw SQL, only that one lookup (a query for matching order ids, using Prisma's
+safely-parameterized `$queryRaw` tagged template, casting the column to text and matching with
+`ILIKE`) is raw — everything else (the other filters, sorting, pagination, the total count) stays
+ordinary Prisma query-builder code built around whatever ids that lookup returns.
+
+Since the visibility rule (primary waiter or collaborator) now applies to the main order list, the
+frontend's separate "All orders / My orders" tabs from Task 4 would have shown a waiter the exact
+same thing twice — so they came out, replaced by the one filterable, sortable, paginated list.
 
 ## What's not built yet, on purpose
 

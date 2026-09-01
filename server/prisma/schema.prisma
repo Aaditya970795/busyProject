@@ -72,6 +72,9 @@ model Order {
 
   lines         OrderLine[]
   collaborators OrderCollaborator[]
+
+  @@index([status])
+  @@index([createdAt])
 }
 
 model OrderLine {

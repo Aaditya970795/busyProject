@@ -1,5 +1,9 @@
 import { prisma } from "../lib/prisma.js";
+import { canActOnOrder } from "../lib/orderAccess.js";
+import { OPEN_STATUSES } from "../lib/orderStatus.js";
 import { Prisma } from "../../generated/prisma/client.ts";
+
+const WAITER_PUBLIC_SELECT = { id: true, name: true, email: true, role: true };
 
 function computeTotal(lines) {
   return lines
@@ -9,10 +13,6 @@ function computeTotal(lines) {
 }
 
 const ORDER_STATUSES = ["placed", "accepted", "preparing", "ready", "served", "cancelled"];
-
-// An order is "open" (voidable, still changeable) for as long as it hasn't reached one of
-// the two terminal states.
-const OPEN_STATUSES = new Set(["placed", "accepted", "preparing", "ready"]);
 
 // Explicit map of "current status" -> the set of statuses it's legal to move to next.
 //
@@ -58,6 +58,22 @@ export async function createOrder(req, res) {
     return res.status(400).json({ error: "table_number must be a positive integer" });
   }
 
+  // Waiters pick a table from the manager-maintained list (see table.controller.js) rather
+  // than typing a number, but that's only a UI convenience — re-validate here so a request
+  // that bypasses the picker can't open an order on a table that doesn't exist or is already
+  // in use.
+  const table = await prisma.table.findUnique({ where: { number: table_number } });
+  if (!table || table.isArchived) {
+    return res.status(400).json({ error: `Table ${table_number} does not exist` });
+  }
+
+  const occupyingOrder = await prisma.order.findFirst({
+    where: { tableNumber: table_number, isArchived: false, status: { in: [...OPEN_STATUSES] } },
+  });
+  if (occupyingOrder) {
+    return res.status(409).json({ error: `Table ${table_number} is currently occupied` });
+  }
+
   const order = await prisma.order.create({
     data: {
       tableNumber: table_number,
@@ -76,6 +92,22 @@ export async function listOrders(req, res) {
   return res.json({ orders });
 }
 
+// A waiter's own worklist: every order where they're the primary waiter or a collaborator.
+// Exposed to every authenticated user rather than gated to waiters — a manager is never
+// primary and can't be added as a collaborator (see addCollaborator), so this just comes
+// back empty for them. Simpler than special-casing the route, and the frontend only surfaces
+// the "My orders" tab to waiters anyway since `GET /orders` already gives managers everything.
+export async function listMyOrders(req, res) {
+  const orders = await prisma.order.findMany({
+    where: {
+      isArchived: false,
+      OR: [{ primaryWaiterId: req.user.id }, { collaborators: { some: { waiterId: req.user.id } } }],
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  return res.json({ orders });
+}
+
 export async function getOrder(req, res) {
   const { id } = req.params;
 
@@ -83,6 +115,7 @@ export async function getOrder(req, res) {
     where: { id },
     include: {
       lines: { include: { menuItem: true }, orderBy: { createdAt: "asc" } },
+      collaborators: { include: { waiter: { select: WAITER_PUBLIC_SELECT } }, orderBy: { addedAt: "asc" } },
     },
   });
 
@@ -91,6 +124,49 @@ export async function getOrder(req, res) {
   }
 
   return res.json({ order, total: computeTotal(order.lines) });
+}
+
+export async function addCollaborator(req, res) {
+  const { id } = req.params;
+  const { waiter_id } = req.body ?? {};
+
+  if (typeof waiter_id !== "string" || !waiter_id) {
+    return res.status(400).json({ error: "waiter_id is required" });
+  }
+
+  const order = await prisma.order.findUnique({ where: { id } });
+  if (!order) {
+    return res.status(404).json({ error: "Order not found" });
+  }
+
+  // Assumption: the brief doesn't say who may attach collaborators, so this restricts it to
+  // whoever is already accountable for the order — its primary waiter — or a manager. That
+  // keeps a waiter from inserting themselves into someone else's order uninvited.
+  if (req.user.role !== "manager" && req.user.id !== order.primaryWaiterId) {
+    return res.status(403).json({ error: "Only the primary waiter or a manager can add collaborators" });
+  }
+
+  if (waiter_id === order.primaryWaiterId) {
+    return res.status(400).json({ error: "The primary waiter is already attached to this order" });
+  }
+
+  const waiter = await prisma.user.findUnique({ where: { id: waiter_id } });
+  if (!waiter || waiter.role !== "waiter") {
+    return res.status(404).json({ error: "Waiter not found" });
+  }
+
+  try {
+    const collaborator = await prisma.orderCollaborator.create({
+      data: { orderId: id, waiterId: waiter_id },
+      include: { waiter: { select: WAITER_PUBLIC_SELECT } },
+    });
+    return res.status(201).json({ collaborator });
+  } catch (err) {
+    if (err.code === "P2002") {
+      return res.status(409).json({ error: "This waiter is already a collaborator on this order" });
+    }
+    throw err;
+  }
 }
 
 export async function updateStatus(req, res) {
@@ -104,6 +180,9 @@ export async function updateStatus(req, res) {
   const order = await prisma.order.findUnique({ where: { id } });
   if (!order) {
     return res.status(404).json({ error: "Order not found" });
+  }
+  if (!(await canActOnOrder(req.user, order))) {
+    return res.status(403).json({ error: "You do not have access to this order" });
   }
 
   const rejectionReason = describeIllegalTransition(order.status, status);
@@ -139,6 +218,9 @@ export async function addLine(req, res) {
   const order = await prisma.order.findUnique({ where: { id } });
   if (!order) {
     return res.status(404).json({ error: "Order not found" });
+  }
+  if (!(await canActOnOrder(req.user, order))) {
+    return res.status(403).json({ error: "You do not have access to this order" });
   }
   if (!OPEN_STATUSES.has(order.status)) {
     return res
@@ -204,6 +286,9 @@ export async function voidLine(req, res) {
   if (!order) {
     return res.status(404).json({ error: "Order not found" });
   }
+  if (!(await canActOnOrder(req.user, order))) {
+    return res.status(403).json({ error: "You do not have access to this order" });
+  }
   if (!OPEN_STATUSES.has(order.status)) {
     return res
       .status(400)
@@ -229,15 +314,17 @@ export async function voidLine(req, res) {
 
 async function setArchived(req, res, isArchived) {
   const { id } = req.params;
-  try {
-    const order = await prisma.order.update({ where: { id }, data: { isArchived } });
-    return res.json({ order });
-  } catch (err) {
-    if (err.code === "P2025") {
-      return res.status(404).json({ error: "Order not found" });
-    }
-    throw err;
+
+  const order = await prisma.order.findUnique({ where: { id } });
+  if (!order) {
+    return res.status(404).json({ error: "Order not found" });
   }
+  if (!(await canActOnOrder(req.user, order))) {
+    return res.status(403).json({ error: "You do not have access to this order" });
+  }
+
+  const updated = await prisma.order.update({ where: { id }, data: { isArchived } });
+  return res.json({ order: updated });
 }
 
 export function archiveOrder(req, res) {
@@ -250,14 +337,17 @@ export function unarchiveOrder(req, res) {
 
 export async function deleteOrder(req, res) {
   const { id } = req.params;
-  try {
-    // OrderLine.order is onDelete: Cascade, so this also removes the order's lines.
-    await prisma.order.delete({ where: { id } });
-    return res.status(204).send();
-  } catch (err) {
-    if (err.code === "P2025") {
-      return res.status(404).json({ error: "Order not found" });
-    }
-    throw err;
+
+  const order = await prisma.order.findUnique({ where: { id } });
+  if (!order) {
+    return res.status(404).json({ error: "Order not found" });
   }
+  if (!(await canActOnOrder(req.user, order))) {
+    return res.status(403).json({ error: "You do not have access to this order" });
+  }
+
+  // OrderLine.order and OrderCollaborator.order are both onDelete: Cascade, so this also
+  // removes the order's lines and collaborator rows.
+  await prisma.order.delete({ where: { id } });
+  return res.status(204).send();
 }

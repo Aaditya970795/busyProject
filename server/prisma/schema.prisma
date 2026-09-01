@@ -37,7 +37,15 @@ model User {
   role         Role
   createdAt    DateTime @default(now())
 
-  orders Order[]
+  orders        Order[]
+  collaborating OrderCollaborator[]
+}
+
+model Table {
+  id         String   @id @default(uuid())
+  number     Int      @unique
+  isArchived Boolean  @default(false)
+  createdAt  DateTime @default(now())
 }
 
 model MenuItem {
@@ -62,7 +70,8 @@ model Order {
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
-  lines OrderLine[]
+  lines         OrderLine[]
+  collaborators OrderCollaborator[]
 }
 
 model OrderLine {
@@ -77,4 +86,14 @@ model OrderLine {
   status              LineStatus @default(active)
   voidReason          String?
   createdAt           DateTime   @default(now())
+}
+
+model OrderCollaborator {
+  orderId  String
+  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  waiterId String
+  waiter   User     @relation(fields: [waiterId], references: [id])
+  addedAt  DateTime @default(now())
+
+  @@id([orderId, waiterId])
 }

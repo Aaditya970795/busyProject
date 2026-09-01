@@ -115,4 +115,82 @@ Nothing I had to catch this time — but it caught something on its own while te
 could still add new items to an order that had already been cancelled, which quietly broke the whole
 point of cancelling something. It fixed that itself and pointed it out to me afterward.
 
+---
+
+## Task 4 — Order collaborators and permission tightening
+
+### What I asked for
+
+I told it this was task 4 of 10, and gave it the exact gap I wanted closed: right now, any logged-in
+waiter could act on any order, not just their own. I laid out the rules precisely — every order still
+has exactly one primary waiter set at creation, but now any number of other waiters can be added as
+collaborators, and a collaborator can do everything the primary waiter can (add lines, void lines,
+change status). A waiter should only be able to act on an order they created or were added to, never
+someone else's. A manager can still act on everything regardless. I asked for one shared "can this
+user act on this order" check written once and reused everywhere, not copy-pasted into every route,
+plus a "my orders" list for waiters. I told it the brief didn't say who's allowed to add a
+collaborator, so it should pick something defensible and tell me what it picked and why. Same as
+before: don't touch anything beyond this, ask before migrating the real database, and actually prove
+it with real requests before calling it done.
+
+### What it came back with
+
+It added the collaborator table, the shared permission check, retrofitted it onto every
+order-mutating route that existed so far (add line, void line, change status, archive, delete), and
+added the "my orders" route. For who can add a collaborator, it picked the primary waiter or a
+manager, and explained why. Then it actually proved the whole thing: created an order as one waiter,
+confirmed a second unrelated waiter got rejected on every single mutating action, added that second
+waiter as a collaborator, confirmed they could now do everything, confirmed a manager could act on it
+regardless of any of that, and confirmed the "my orders" list picked the order up correctly — all
+through real requests against the real database, and it cleaned up the test accounts and data it had
+created afterward.
+
+### What I had to catch or fix along the way
+
+Nothing — this one went through clean on the first pass.
+
+---
+
+## Task 5 — Table management
+
+### What I asked for
+
+This wasn't a formally numbered task like the others — I just described a real gap I wanted closed:
+waiters were typing a table number by hand when starting an order, and I wanted managers to control a
+real list of tables instead. I asked for managers to be able to build out how many tables there are,
+add more later, and remove ones they don't need — and for waiters to only be able to pick from that
+list, never type their own number, with a search bar to find one quickly, and critically, only tables
+that are actually free (not already occupied by another order) should show up as options. I told it
+everything else should keep working exactly as it already did.
+
+### What it came back with
+
+It built a manager-only table list (add/remove, "remove" being a soft archive so a number can come
+back later), a search bar on the table list itself, and replaced the manual number field on the order
+screen with a searchable picker of only the currently-free tables. It made table occupancy work out
+automatically from whatever orders are still open, instead of some status flag it'd have to remember
+to flip, and it added the real server-side check too — even if someone bypassed the picker, the
+server rejects an order on a table that doesn't exist or one that's already in use.
+
+Once the migration was actually in place, I asked it to verify by adding tables as a manager and
+checking the waiter side worked without breaking anything from the earlier tasks, and it did —
+created several tables, confirmed a waiter couldn't create one, confirmed a duplicate table number
+got rejected, confirmed a table disappeared from the available list the moment an order was opened on
+it and came back the moment that order was cancelled, confirmed archiving and restoring a table
+worked, and re-ran a quick smoke test on menu CRUD, adding a line, status changes, and the Task 4
+collaborator permission check to make sure none of it had broken.
+
+### What I had to catch or fix along the way
+
+Running the actual migration turned into the biggest snag of any task so far — Prisma's own migration
+tool couldn't reach the real database from this machine at all, even though a plain database
+connection to the exact same address worked fine. It dug into it, ruled out the obvious things (DNS,
+the database actually being down), narrowed it down to something on this machine specifically
+blocking Prisma's own connection program, and proposed switching to a different Supabase connection
+address plus applying the migration by hand as a workaround, which I approved.
+
+Separately, after all that, I hit a proxy error on the client (`ECONNREFUSED`) because it had shut
+down the backend server after finishing its verification and I hadn't noticed it was still off — that
+one was on me for not restarting it myself, and it just started the server back up.
+
 

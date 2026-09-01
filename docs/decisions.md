@@ -109,5 +109,61 @@ I noticed while testing that you could still add items to an order after it was 
 didn't make sense — why would you add something to an order that's already dead? I closed that off
 so items can only be added while the order is still open.
 
+---
+
+14. Kept collaborators addable only by the primary waiter or a manager
+
+The brief didn't say who's allowed to add a collaborator to an order. I picked the primary waiter or
+a manager — not any collaborator, and not any waiter — since letting anyone attach themselves (or
+anyone else) to someone else's order felt like the wrong default.
+
+---
+
+15. `GET /orders/mine` stayed open to managers too, instead of blocking them
+
+A manager can never actually be a primary waiter or a collaborator, so this route just comes back
+empty for them. Blocking it with a 403 would have been extra code for a route that's already
+harmless to leave open — the frontend just doesn't bother showing the "my orders" tab to managers.
+
+---
+
+16. Removing a table is a soft archive, not a real delete
+
+Same reasoning as menu items — a manager can un-remove a table if they didn't mean to, and it keeps
+the table's number consistent for any old orders that used it. Re-adding the same table number
+afterward restores the same row instead of erroring on the number being "already used."
+
+---
+
+17. The Table list has no foreign key relationship to Order
+
+`Order.tableNumber` is still just a plain number, exactly like before this task. Making it a real
+relation would have meant backfilling every existing order with a matching Table row before the
+migration could even run. Keeping them separate meant the whole feature could be added without
+touching the Order table's shape at all — whether a table is occupied gets worked out by comparing
+numbers in the code instead.
+
+---
+
+18. Had to switch the database connection string from Supabase's direct connection to its "session
+pooler" one
+
+Partway through Task 5, Prisma's own migration tool stopped being able to reach the database from
+this machine, even though a plain database client could connect to the exact same URL just fine.
+Turned out to be something on this machine blocking Prisma's separate connection program
+specifically, not a real database problem. Switching to Supabase's pooler connection (a different
+address that also happens to dodge the IPv6-only issue the direct connection has) fixed it for the
+actual app, and I kept it that way going forward.
+
+---
+
+19. Applied one migration by hand instead of through Prisma's own migration command
+
+Even after switching to the pooler connection, Prisma's migration tool still couldn't get through on
+this machine (same blocking issue as above), so the exact SQL Prisma would have generated got run
+straight against the database with a plain database client, then recorded in Prisma's own migration
+history table by hand so its tooling wouldn't get confused later. `prisma migrate status` confirmed
+everything still lined up afterward.
+
 
 

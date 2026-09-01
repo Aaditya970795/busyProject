@@ -104,6 +104,55 @@ All of this is enforced on the server, not just in the interface. The buttons on
 you the moves that are actually allowed right now, but even if someone bypassed the interface
 completely, the server would still refuse anything that breaks these rules and explain why.
 
+## Order collaborators and permission tightening (added in Task 4)
+
+Every order still has exactly one primary waiter, set once at creation. On top of that, any number
+of other waiters can now be added as collaborators — the primary waiter or a manager adds one
+through `POST /api/orders/:id/collaborators`, picking from the list of existing waiters. Once added,
+a collaborator can do everything the primary waiter can: add lines, void lines, change status.
+
+Whether a given user is allowed to act on a given order all comes down to one function,
+`canActOnOrder` in `src/lib/orderAccess.js` — true for a manager, the primary waiter, or a listed
+collaborator, false otherwise. Every route that changes something about an order (add line, void
+line, change status, archive/unarchive, delete) calls this same function instead of re-checking the
+rule its own way, so there's exactly one place that decides who's allowed to touch an order.
+
+Waiters also get their own list now — `GET /api/orders/mine` — every order where they're the primary
+waiter or a collaborator, so they don't have to hunt through every order in the restaurant to find
+their own. A manager technically can't be a collaborator (only waiters can be added as one), so this
+route is mostly meaningless for a manager and the frontend just doesn't show it to them — but the
+server doesn't bother blocking the request either, since it's harmless to leave open.
+
+Reading an order (`GET /api/orders/:id`) and listing every order (`GET /api/orders`) are still open
+to anyone logged in — this task only tightened who can change something about an order, not who can
+look at one.
+
+## Table management (added in Task 5)
+
+Before this, a waiter typed a table number by hand when starting a new order — nothing stopped a
+typo, a made-up number, or two different waiters opening two separate orders on the same physical
+table at the same time. Now there's a real `Table` list a manager controls: add a table with
+`POST /api/tables`, remove one (really just archives it, same pattern as menu items) with
+`POST /api/tables/:id/archive`, bring it back with `/unarchive`.
+
+A table's "occupied" status isn't a column stored anywhere — it's worked out on the fly, by checking
+whether any non-archived order currently sitting in an open status (placed, accepted, preparing, or
+ready) has that table number. The moment an order reaches served or cancelled, or gets deleted, its
+table is free again automatically, with nothing extra to update by hand. That open-status list used
+to live only inside the order controller; it's now shared from `src/lib/orderStatus.js` so the order
+rules and the table-occupancy rules can never quietly drift apart from each other.
+
+When a waiter starts a new order now, `POST /api/orders` still takes a `table_number`, but the server
+re-checks that the number belongs to a real, non-archived table and isn't already occupied — the
+frontend only lets you click a table from the available list, but that's just convenience; the real
+enforcement is server-side, same as every other rule in this app.
+
+The `Table` model deliberately isn't a foreign key on `Order` — `Order.tableNumber` is still just a
+plain number, exactly like it's been since Task 2. Tying them together with a real relation would
+have meant backfilling every existing order with a matching table row before the migration could
+even run; keeping them separate meant this whole feature could be added without touching the `Order`
+table at all.
+
 ## What's not built yet, on purpose
 
 - No menu, no orders, no dashboard content — `/dashboard` is literally just an empty page for now.

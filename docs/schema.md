@@ -72,6 +72,35 @@ now:
 Also worth knowing: if an order ever gets deleted, all of its lines get deleted along with it
 automatically — I don't have to clean those up by hand, the database takes care of it.
 
+## The OrderCollaborator table (added in Task 4)
+
+Lets more than one waiter act on the same order. Each row just says "this waiter is attached to this
+order":
+
+- `orderId` and `waiterId` together form the primary key — a waiter can only be attached to the same
+  order once, and the database itself won't allow a duplicate row, no app-side check needed for that
+  part.
+- `addedAt` — when they were added.
+
+If the order gets deleted, its collaborator rows get deleted along with it automatically (same
+cascading behavior as order lines).
+
+## The Table table (added in Task 5)
+
+A simple standalone list a manager maintains:
+
+- `number` — has to be unique, enforced by the database with a unique index, same pattern as email
+  on the User table.
+- `isArchived` — same "soft delete" idea as menu items. Removing a table just hides it, it doesn't
+  delete the row.
+- `createdAt`.
+
+This table doesn't have any foreign key pointing at it, and nothing points a foreign key back at
+`Order` either — `Order.tableNumber` is still just a plain integer, unrelated at the database level
+to this new table. Whether a table is "occupied" gets worked out by comparing `Table.number` against
+the `tableNumber` on any order that's still open — that comparison happens in the code, not as a
+database relationship.
+
 ## Where do I check things — the app or the database?
 
 - **Role has to be valid**: checked in both places on purpose. The database physically can't store
@@ -96,3 +125,9 @@ automatically — I don't have to clean those up by hand, the database takes car
   code.
 - **Voiding a line always needs a reason**: checked in the code — if you don't type a reason, the
   request gets rejected before it ever touches the database.
+- **Who's allowed to act on an order (manager, primary waiter, or a collaborator)**: checked in the
+  code, through one shared function instead of being copy-pasted into every route. The database has
+  no idea collaborators mean anything special; it just stores the rows.
+- **A table has to actually exist and not already be occupied before an order can be opened on it**:
+  checked in the code, in `POST /api/orders`, every single time — not just something the frontend's
+  table picker happens to prevent.

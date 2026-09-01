@@ -34,6 +34,9 @@ export function AppShell() {
               <NavLink to="/menu" className={NAV_LINK_CLASS}>
                 Menu
               </NavLink>
+              <NavLink to="/tables" className={NAV_LINK_CLASS}>
+                Tables
+              </NavLink>
               <NavLink to="/orders" className={NAV_LINK_CLASS}>
                 Orders
               </NavLink>

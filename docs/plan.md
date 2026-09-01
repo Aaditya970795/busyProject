@@ -39,3 +39,29 @@ along or take something off the bill.
 Why this came after Task 2: you can't build the rules for moving an order through its stages until
 the order and its items actually exist first, which is exactly what Task 2 built.
 
+### Task 4 — Order collaborators and permission tightening
+
+This closed a real gap left over from Task 3: any logged-in waiter could act on any order, not just
+their own. Now every order still has exactly one primary waiter (set at creation, unchanged from
+Task 2), but any number of other waiters can be added as collaborators, and a collaborator can do
+everything the primary waiter can — add lines, void lines, change status. Whether a given user is
+allowed to touch a given order now comes down to one shared check reused everywhere instead of
+copy-pasted into every route: a manager, the primary waiter, or a listed collaborator, and nobody
+else. Waiters also got a "my orders" list — every order where they're primary or a collaborator.
+
+Why this came after Task 3: you can't restrict who's allowed to touch an order's status/lines until
+the status and lines rules themselves exist, which is exactly what Task 3 built.
+
+### Task 5 — Table management
+
+Before this, a waiter typed any table number by hand when starting an order — nothing stopped a
+typo, a made-up number, or two waiters opening two separate orders on the same physical table at the
+same time. Now a manager owns a real list of tables (add one, remove one), and a waiter starting a
+new order can only pick from that list, filtered down to whichever tables aren't currently occupied
+by another open order. A search bar on both the table list and the order-creation picker makes it
+quick to find one table out of a long list.
+
+Why this came after Task 4: it's the same category of thing as Task 4 — tightening up who's allowed
+to do what around an order — just aimed at the table number this time instead of who can act on the
+order itself.
+

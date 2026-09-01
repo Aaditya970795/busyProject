@@ -49,6 +49,23 @@ export function ReceiptIcon(props) {
   );
 }
 
+export function SearchIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" {...BASE} {...props}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m21 21-4.3-4.3" />
+    </svg>
+  );
+}
+
+export function UserPlusIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" {...BASE} {...props}>
+      <path d="M16 19v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM19 8v6M22 11h-6" />
+    </svg>
+  );
+}
+
 export function TrashIcon(props) {
   return (
     <svg viewBox="0 0 24 24" width="16" height="16" {...BASE} {...props}>

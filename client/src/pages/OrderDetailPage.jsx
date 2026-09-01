@@ -2,9 +2,10 @@ import { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { formatCurrency } from "../lib/format";
-import { ArrowLeftIcon, PlusIcon, TrashIcon } from "../components/icons";
+import { ArrowLeftIcon, PlusIcon, TrashIcon, UserPlusIcon } from "../components/icons";
 
 // Mirrors the server's transition table (server/src/controllers/order.controller.js) just
 // closely enough to decide which controls to show. This is a UI convenience only — the
@@ -28,6 +29,7 @@ export function OrderDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["order", id],
@@ -46,8 +48,34 @@ export function OrderDetailPage() {
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [voidingLineId, setVoidingLineId] = useState(null);
   const [voidReason, setVoidReason] = useState("");
+  const [collaboratorId, setCollaboratorId] = useState("");
 
   const invalidateOrder = () => queryClient.invalidateQueries({ queryKey: ["order", id] });
+
+  const order = data?.order;
+  const canManageCollaborators = Boolean(
+    user && order && (user.role === "manager" || user.id === order.primaryWaiterId)
+  );
+
+  const { data: waiterData } = useQuery({
+    queryKey: ["users", "waiter"],
+    queryFn: () => api.get("/users?role=waiter"),
+    enabled: canManageCollaborators,
+  });
+
+  const addCollaboratorMutation = useMutation({
+    mutationFn: (waiterId) => api.post(`/orders/${id}/collaborators`, { waiter_id: waiterId }),
+    onSuccess: () => {
+      invalidateOrder();
+      setCollaboratorId("");
+    },
+  });
+
+  function handleAddCollaborator(e) {
+    e.preventDefault();
+    if (!collaboratorId) return;
+    addCollaboratorMutation.mutate(collaboratorId);
+  }
 
   const addLineMutation = useMutation({
     mutationFn: (payload) => api.post(`/orders/${id}/lines`, payload),
@@ -62,6 +90,8 @@ export function OrderDetailPage() {
     mutationFn: (status) => api.patch(`/orders/${id}/status`, { status }),
     onSuccess: () => {
       invalidateOrder();
+      // Reaching a terminal status (served/cancelled) frees up the table for new orders.
+      queryClient.invalidateQueries({ queryKey: ["tables"] });
       setConfirmingCancel(false);
     },
   });
@@ -79,6 +109,7 @@ export function OrderDetailPage() {
     mutationFn: () => api.delete(`/orders/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["tables"] });
       navigate("/orders", { replace: true });
     },
   });
@@ -103,7 +134,7 @@ export function OrderDetailPage() {
   if (isLoading) return <p className="text-sm text-slate-500">Loading…</p>;
   if (error) return <p className="text-sm text-red-600">{error.message}</p>;
 
-  const { order, total } = data;
+  const { total } = data;
   const nextStatus = NEXT_STATUS[order.status];
   const isOpen = OPEN_STATUSES.has(order.status);
 
@@ -195,6 +226,60 @@ export function OrderDetailPage() {
       {deleteMutation.error && (
         <p className="mt-2 text-right text-sm text-red-600">{deleteMutation.error.message}</p>
       )}
+
+      <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 className="text-sm font-medium text-slate-700">Collaborators</h2>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {order.collaborators.length === 0 && (
+            <span className="text-sm text-slate-400">No collaborators yet.</span>
+          )}
+          {order.collaborators.map((collaborator) => (
+            <span
+              key={collaborator.waiterId}
+              className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"
+            >
+              {collaborator.waiter.name}
+            </span>
+          ))}
+        </div>
+
+        {canManageCollaborators && (
+          <form onSubmit={handleAddCollaborator} className="mt-3 flex flex-wrap items-end gap-2">
+            <div className="min-w-[10rem] flex-1">
+              <label className="block text-sm font-medium text-slate-700">Add collaborator</label>
+              <select
+                value={collaboratorId}
+                onChange={(e) => setCollaboratorId(e.target.value)}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              >
+                <option value="">Select a waiter</option>
+                {waiterData?.users
+                  .filter(
+                    (waiter) =>
+                      waiter.id !== order.primaryWaiterId &&
+                      !order.collaborators.some((c) => c.waiterId === waiter.id)
+                  )
+                  .map((waiter) => (
+                    <option key={waiter.id} value={waiter.id}>
+                      {waiter.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <button
+              type="submit"
+              disabled={!collaboratorId || addCollaboratorMutation.isPending}
+              className="flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-50"
+            >
+              <UserPlusIcon width="14" height="14" />
+              Add
+            </button>
+          </form>
+        )}
+        {addCollaboratorMutation.error && (
+          <p className="mt-2 text-sm text-red-600">{addCollaboratorMutation.error.message}</p>
+        )}
+      </div>
 
       <div className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <table className="w-full text-left text-sm">

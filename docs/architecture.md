@@ -64,6 +64,10 @@ both folders).
    way if someone got deleted from the system, their old token stops working right away instead of
    staying valid until it expires.
 
+*(Update, Task 8: this guarantee got stronger — `requireAuth` itself now does this database check on
+every single request, not just `/me`, and uses the role it finds in the database instead of the role
+baked into the token. See the Task 8 section below for why.)*
+
 ## Menu management (added in Task 2)
 
 Managers can now add, edit, and archive menu items — waiters can only look at the menu, not change
@@ -183,10 +187,117 @@ Since the visibility rule (primary waiter or collaborator) now applies to the ma
 frontend's separate "All orders / My orders" tabs from Task 4 would have shown a waiter the exact
 same thing twice — so they came out, replaced by the one filterable, sortable, paginated list.
 
+## Bulk menu updates and CSV order export (added in Task 7)
+
+`PATCH /api/menu-items/bulk` lets a manager apply one change (a new price and/or a change in
+availability) to a list of menu item ids in a single request. Each id is validated and updated
+independently, in its own try/catch — not inside one `prisma.$transaction` covering the whole
+batch — because a `$transaction` would roll every item back the moment one of them failed, and the
+actual requirement is the opposite: report per item what happened (`ok`, or `rejected` with a
+reason) instead of failing the whole batch over one bad id.
+
+`GET /api/orders/export?date=YYYY-MM-DD` returns a CSV of every order placed that day — one row per
+order line, with the order-level fields (table, status, waiter, placed time, total) repeated on
+every line's row, and a single blank-fields row for an order that has no lines yet so it's never
+silently missing from the export. It respects the exact same visibility as every other order
+endpoint: a waiter only gets orders they're attached to, a manager gets everything for that date.
+The CSV itself is hand-written — a small escape-and-join helper in `src/lib/csv.js` — rather than a
+library, since this data is already flat rows of plain values with nothing nested or streamed. That
+helper also neutralizes any field that starts with `=`, `+`, `-`, `@`, or a tab (prefixing it with a
+literal `'`), so a name or void reason someone typed can't turn into a formula that executes when
+the exported file is opened in Excel or Sheets. This one wasn't caught up front — it turned up in a
+quick security pass over this feature specifically, right after it was built, proven with an actual
+`=HYPERLINK(...)` payload in a waiter's own name, and fixed the same day, before the broader
+whole-project audit in Task 8 below even started.
+
+## Security audit and the fixes that came out of it (added in Task 8)
+
+This task started with a bug report, not a brief: creating an order didn't actually require adding
+any item to it. `POST /api/orders` now requires a `menu_item_id` and `quantity` up front, and creates
+the order together with its first line in one nested Prisma write, so the two can never exist
+separately — either both get created or neither does. Further items still go through the existing
+`POST /:id/lines` route once the order exists.
+
+That bug prompted a full security pass over the rest of the project. It turned up one critical
+finding and four smaller ones:
+
+- **Critical — self-registration as manager.** `POST /api/auth/register` took a `role` field
+  straight from the request body with no gate at all, so any anonymous request could hand itself
+  `role: "manager"` and get every manager-only permission in the app. This is what Task 9 (below)
+  actually fixes properly, rather than just patching the one field.
+- **Missing indexes.** `Order.primaryWaiterId`, `Order.tableNumber`, `OrderLine.orderId`, and
+  `OrderCollaborator.waiterId` — the foreign-key columns actually filtered on in every order
+  list/detail/visibility query — had no index at all. Added all four.
+- **`GET /api/orders/:id` had no visibility check.** Every other order-reading endpoint picked up
+  the primary-waiter-or-collaborator rule in Task 6; this one was left open in Task 4 on purpose and
+  never revisited. It now calls the same `canActOnOrder` check every mutating route already used.
+- **Table double-booking race condition.** The "is this table occupied" check and the order
+  `create` in `createOrder` were two separate, unlocked statements — two requests for the same table
+  arriving close together could both pass the check before either committed. Wrapped both in a
+  `prisma.$transaction` with `Serializable` isolation, so Postgres itself detects the overlap and
+  the loser gets a clean 409 asking it to retry instead of silently succeeding. (With the
+  `@prisma/adapter-pg` driver this project uses, that conflict surfaces as a `DriverAdapterError`
+  with the raw Postgres SQLSTATE `40001`, not the `P2034` code Prisma's own docs describe for its
+  default engine — worth knowing if this ever needs debugging again.) The equivalent, lower-stakes
+  race in `table.controller.js`'s table-create also got a `P2002` catch, since the database's own
+  unique constraint already prevented the actual duplicate — it just wasn't turned into a clean
+  error before.
+- **`GET /api/users` exposed every coworker's email to any authenticated waiter.** Email is now
+  only included in the response for a manager or admin; everyone still gets `id`/`name`/`role`,
+  which is all the collaborator picker and the waiter filter dropdown ever needed.
+
+Fixing the self-registration hole surfaced one more thing while verifying it: `requireAuth` was
+extracting `id` and `role` straight from the JWT's own payload, never checking the database. That
+meant a manager demoted to waiter (once Task 9 made that possible) would keep manager-level access
+for as long as their existing 7-day token stayed valid — and, worse, a deleted user's token kept
+working everywhere except `/me`, contradicting what this doc already claimed above. `requireAuth`
+now looks the user up by id on every request and uses the role it finds there, full stop.
+
+## Account roles and provisioning: admin, manager, waiter (added in Task 9)
+
+There's a third role now, ranked above manager: `admin`. The rank order — `waiter < manager <
+admin` — lives in one place, `src/lib/roles.js`, as an `atLeast(role, minRole)` helper; `requireRole`
+and every hand-rolled `role === "manager"` check in the order/user controllers were switched to it,
+so admin automatically gets everything manager already had (menu, tables, orders, bulk update,
+export, acting on any order) without duplicating a single permission check.
+
+Public registration is gone entirely — there's no `POST /api/auth/register` anymore, and no
+`RegisterPage` in the client. Every account now comes from `POST /api/users`, gated by the same
+`canManage(callerRole, targetRole)` rule used for password resets (see Task 10): a manager can
+create a `waiter` account, only an admin can create a `manager` account, and `admin` itself is never
+an assignable role through this endpoint — or through `PATCH /api/users/:id/role` (also admin-only
+now, previously any manager). The creator sets the new account's initial password directly and
+hands it to the person, since the account never self-registers.
+
+That leaves one deliberate, permanent gap: nothing about the `admin` role — creating it, changing
+it, resetting its password — has any HTTP path at all. The only admin account in this database came
+from a one-time script, run once directly against Postgres and deleted immediately afterward. If the
+admin account is ever lost, recovering it needs the same kind of direct database access, not an API
+call — that's the tradeoff for having zero remote attack surface on the top of the hierarchy.
+
+## Password reset and the create-account success card (added in Task 10)
+
+`PATCH /api/users/:id/password` follows the exact same authority rule as account creation
+(`canManage`): whoever could have created an account can also reset its password — a manager for a
+waiter, an admin for a manager or a waiter, nobody (not even another admin) for an admin's own
+account. This is the app's entire answer to "forgot password," since there's no email
+infrastructure to send a reset link — the person who has authority over that account just sets a new
+one and hands it over, the same way the account was created in the first place.
+
+The Team page's "add account" form used to clear itself immediately after a successful create,
+which meant a typo'd copy-paste or a closed tab could lose the password before it ever reached the
+new hire. It now shows a dismissible card with the name/email/password together and a copy button,
+explicitly labeled as a one-time reveal — the same pattern AWS/GitHub/etc. use for access keys and
+tokens. If the password does get lost before being shared, there's deliberately no special recovery
+path for that case: resetting it again is free, and the new hire never logged in with the lost one
+anyway.
+
 ## What's not built yet, on purpose
 
 - No menu, no orders, no dashboard content — `/dashboard` is literally just an empty page for now.
-- No "forgot password" or email verification flow.
+- No "forgot password" or email verification flow. *(Update, Task 10: partially addressed — an
+  admin or manager can reset an account they manage, since there's still no email infrastructure to
+  send a self-service reset link. See the Task 10 section below.)*
 - No refresh tokens — it's one 7-day token, no silent renewal.
 - No rate limiting on login/register yet.
 

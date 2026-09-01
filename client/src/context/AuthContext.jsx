@@ -29,10 +29,6 @@ export function AuthProvider({ children }) {
     onSuccess: (data) => queryClient.setQueryData(["auth", "me"], data.user),
   });
 
-  const registerMutation = useMutation({
-    mutationFn: (payload) => api.post("/auth/register", payload),
-  });
-
   const logoutMutation = useMutation({
     mutationFn: () => api.post("/auth/logout"),
     onSuccess: () => queryClient.setQueryData(["auth", "me"], null),
@@ -44,9 +40,6 @@ export function AuthProvider({ children }) {
     login: loginMutation.mutateAsync,
     isLoggingIn: loginMutation.isPending,
     loginError: loginMutation.error,
-    register: registerMutation.mutateAsync,
-    isRegistering: registerMutation.isPending,
-    registerError: registerMutation.error,
     logout: logoutMutation.mutateAsync,
   };
 

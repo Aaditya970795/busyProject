@@ -3,10 +3,15 @@ import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { StatusBadge } from "../components/StatusBadge";
+import { formatCurrency } from "../lib/format";
 import { PlusIcon, ReceiptIcon, SearchIcon, ChevronUpIcon, ChevronDownIcon } from "../components/icons";
 
 const ORDER_STATUSES = ["placed", "accepted", "preparing", "ready", "served", "cancelled"];
 const PAGE_SIZE = 10;
+
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
 const SORT_COLUMNS = [
   { field: "table", label: "Table" },
   { field: "status", label: "Status" },
@@ -18,6 +23,8 @@ export function OrdersPage() {
   const navigate = useNavigate();
   const [tableSearch, setTableSearch] = useState("");
   const [selectedTable, setSelectedTable] = useState(null);
+  const [menuItemId, setMenuItemId] = useState("");
+  const [quantity, setQuantity] = useState("1");
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -26,6 +33,10 @@ export function OrdersPage() {
   const [dateFilter, setDateFilter] = useState("");
   const [sort, setSort] = useState({ field: "placed", dir: "desc" });
   const [page, setPage] = useState(1);
+
+  const [exportDate, setExportDate] = useState(todayIsoDate());
+  const [exportError, setExportError] = useState(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -60,6 +71,11 @@ export function OrdersPage() {
     queryFn: () => api.get("/tables?available=true"),
   });
 
+  const { data: menuData } = useQuery({
+    queryKey: ["menuItems"],
+    queryFn: () => api.get("/menu-items"),
+  });
+
   const availableTables = (tableData?.tables ?? []).filter((table) =>
     table.number.toString().includes(tableSearch.trim())
   );
@@ -71,14 +87,17 @@ export function OrdersPage() {
       queryClient.invalidateQueries({ queryKey: ["tables"] });
       setSelectedTable(null);
       setTableSearch("");
+      setMenuItemId("");
+      setQuantity("1");
       navigate(`/orders/${result.order.id}`);
     },
   });
 
   function handleCreate(e) {
     e.preventDefault();
-    if (!selectedTable) return;
-    createMutation.mutate({ table_number: selectedTable });
+    const parsedQuantity = parseInt(quantity, 10);
+    if (!selectedTable || !menuItemId || !Number.isInteger(parsedQuantity) || parsedQuantity <= 0) return;
+    createMutation.mutate({ table_number: selectedTable, menu_item_id: menuItemId, quantity: parsedQuantity });
   }
 
   function toggleSort(field) {
@@ -101,6 +120,26 @@ export function OrdersPage() {
     setPage(1);
   }
 
+  async function handleExport() {
+    setExportError(null);
+    setIsExporting(true);
+    try {
+      const { blob, filename } = await api.downloadFile(`/orders/export?date=${exportDate}`);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setExportError(err.message);
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   const orders = data?.data ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -109,10 +148,32 @@ export function OrdersPage() {
 
   return (
     <div>
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Orders</h1>
-        <p className="mt-0.5 text-sm text-slate-500">Open a new ticket or jump back into one.</p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Orders</h1>
+          <p className="mt-0.5 text-sm text-slate-500">Open a new ticket or jump back into one.</p>
+        </div>
+        <div className="flex items-end gap-2">
+          <div>
+            <label className="block text-sm font-medium text-slate-700">Export date</label>
+            <input
+              type="date"
+              value={exportDate}
+              onChange={(e) => setExportDate(e.target.value)}
+              className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={isExporting}
+            className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:opacity-50"
+          >
+            {isExporting ? "Exporting…" : "Export CSV"}
+          </button>
+        </div>
       </div>
+      {exportError && <p className="mt-2 text-sm text-red-600">{exportError}</p>}
 
       <form
         onSubmit={handleCreate}
@@ -153,9 +214,39 @@ export function OrdersPage() {
           )}
         </div>
 
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <div className="min-w-[10rem] flex-1">
+            <label className="block text-sm font-medium text-slate-700">First item</label>
+            <select
+              value={menuItemId}
+              onChange={(e) => setMenuItemId(e.target.value)}
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            >
+              <option value="">Select an item</option>
+              {menuData?.menuItems.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name} — {formatCurrency(item.price)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="w-24">
+            <label className="block text-sm font-medium text-slate-700">Qty</label>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
+        </div>
+        <p className="mt-2 text-xs text-slate-400">An order needs at least one item to be created.</p>
+
         <button
           type="submit"
-          disabled={!selectedTable || createMutation.isPending}
+          disabled={!selectedTable || !menuItemId || createMutation.isPending}
           className="mt-4 flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-50"
         >
           <PlusIcon />

@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
+import { isManagerOrAbove } from "../lib/roles";
 import { StatusBadge } from "../components/StatusBadge";
 import { formatCurrency } from "../lib/format";
 import { ArrowLeftIcon, PlusIcon, TrashIcon, UserPlusIcon } from "../components/icons";
@@ -54,7 +55,7 @@ export function OrderDetailPage() {
 
   const order = data?.order;
   const canManageCollaborators = Boolean(
-    user && order && (user.role === "manager" || user.id === order.primaryWaiterId)
+    user && order && (isManagerOrAbove(user.role) || user.id === order.primaryWaiterId)
   );
 
   const { data: waiterData } = useQuery({

@@ -2,11 +2,12 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
+import { isManagerOrAbove } from "../lib/roles";
 import { PlusIcon, ArchiveIcon, RestoreIcon, SearchIcon } from "../components/icons";
 
 export function TablesPage() {
   const { user } = useAuth();
-  const isManager = user?.role === "manager";
+  const isManager = isManagerOrAbove(user?.role);
   const queryClient = useQueryClient();
   const [showArchived, setShowArchived] = useState(false);
   const [search, setSearch] = useState("");

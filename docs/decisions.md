@@ -9,6 +9,7 @@ note under one if I end up changing my mind down the line.
 
 1. Went with the stable version of Prisma instead of what got installed by default
 
+
 When I ran `prisma init`, it quietly installed a release-candidate version of Prisma (8.0.0-rc.12)
 that didn't even match the client library version it also installed. I switched both back to the
 plain stable version, 7.10.0.
@@ -194,6 +195,163 @@ used, the two tabs would show a waiter the exact same set of orders under two di
 the `/orders/mine` route itself (removing a working endpoint wasn't asked for), but the tab toggle in
 the UI was just confusing dead weight at that point, so it came out in favor of the one filterable
 list.
+
+---
+
+23. Bulk menu update processes each id independently, never inside one transaction
+
+A `prisma.$transaction` covering the whole batch would roll every item back the moment one of them
+failed. The actual requirement was the opposite — partial success, with a per-item report of what
+happened — so each id gets its own try/catch in a plain loop instead.
+
+---
+
+24. Hand-wrote the CSV export instead of using a library
+
+Went back and forth on this one — briefly installed `csv-stringify`, then switched to a small
+hand-rolled escape-and-join helper instead once it was clear the data was simple enough not to need
+a dependency for it (flat rows of plain values, nothing nested or streamed).
+
+---
+
+25. CSV export: one row per order line, order fields repeated, and the same visibility as the order list
+
+Order-level fields (id, table, status, waiter, placed time, total) repeat on every line's row rather
+than appearing once — the simplest shape that still opens correctly in a spreadsheet. An order with
+no lines yet still gets a single row with blank line-fields, so it's never silently missing. A
+waiter's export only includes orders they're attached to, same rule as everywhere else; a manager
+gets every order for that date.
+
+---
+
+26. Neutralize CSV cells that start with a formula-trigger character
+
+A cell starting with `=`, `+`, `-`, `@`, or a tab gets a literal `'` prefixed onto it before writing.
+Found via a security pass on the export feature (proven with an actual `=HYPERLINK(...)` payload
+sitting in a waiter's own display name), not a hypothetical — without this, a low-privilege user's
+own name or a void reason they typed could execute as a formula when a manager opens the exported
+file in Excel or Sheets.
+
+---
+
+27. An order can't be created without at least one item
+
+`POST /api/orders` now requires `menu_item_id` and `quantity` up front and creates the order together
+with its first line in one nested Prisma write, so the two can never land as separate statements.
+Before this, a bare `{ table_number }` request created a real, empty order that just sat there —
+found by testing, not by inspection.
+
+---
+
+28. First fix for self-registration: strip `role` from the public register endpoint
+
+Made every new account a waiter regardless of what the request body asked for, closing the immediate
+hole with a one-line change. **Later reversed/superseded**: Task 9 removed public registration
+entirely — this decision only lasted until the very next task, once it was clear that patching the
+one field didn't address how a manager account should ever legitimately get created.
+
+---
+
+29. `requireAuth` re-reads the user's role from the database on every request, not from the JWT
+
+The token used to carry `role` as a claim, trusted as-is. That meant a role change (impossible before
+Task 9, but very possible after) wouldn't take effect until the old token expired — up to 7 days —
+and a deleted user's token kept working on every route except `/me`, which did its own DB check.
+Found while verifying the self-registration fix, fixed the same way: one database lookup per request
+instead of trusting the token's payload.
+
+---
+
+30. Added the four indexes the audit found missing
+
+`Order.primaryWaiterId`, `Order.tableNumber`, `OrderLine.orderId`, `OrderCollaborator.waiterId` — all
+foreign-key columns actually filtered on in the app's most common queries, none of them indexed.
+Nothing was wrong about the queries themselves, just an easy thing to miss until it's slow.
+
+---
+
+31. `GET /api/orders/:id` now requires the same access check as every mutating endpoint
+
+It had been deliberately left open since Task 4 ("this task only tightened who can change something,
+not who can look at one"), and nothing since had revisited it even after Task 6 added the same
+visibility rule to the list and export endpoints. Closed the inconsistency rather than leave it as a
+known gap.
+
+---
+
+32. Closed the table-double-booking race with a Serializable transaction, plus a safety-net catch on table creation
+
+The occupancy check and the order `create` used to be two separate, unlocked statements. Wrapped both
+in one `prisma.$transaction` with `Serializable` isolation so Postgres itself detects two overlapping
+requests and fails the loser with a clean 409 instead of letting both succeed. Proved it with real
+concurrent requests, not just reasoning about it — and found along the way that this driver
+(`@prisma/adapter-pg`) surfaces the conflict as a raw SQLSTATE `40001`, not Prisma's documented
+`P2034`. Table creation got the equivalent-but-lower-stakes fix: a `P2002` catch, since the database's
+own unique constraint already prevented the actual duplicate, it just wasn't turned into a clean
+error before.
+
+---
+
+33. `GET /api/users` only includes email addresses for a manager or admin
+
+Every authenticated user still needs this endpoint (it powers the collaborator picker and the waiter
+filter dropdown), but neither of those features ever needed a coworker's email — only `id`/`name`/
+`role` do. Tightened to least privilege rather than leaving it open to everyone just because it
+already was.
+
+---
+
+34. Left email enumeration on account creation alone
+
+`POST /api/users` still returns a distinct "Email already registered" for a duplicate. Hiding that
+is the standard mitigation for password-reset flows, not account-creation ones — most real products
+confirm an email's already in use at signup — and there's no path from that response to an actual
+account compromise. A deliberate call, not an oversight.
+
+---
+
+35. Added a real `admin` role instead of further tightening the manager/waiter check
+
+Once self-registration as a manager had to close for good, *something* had to gate who becomes a
+manager. Rather than hard-code "only a manager can promote someone" (circular — the first manager
+would still need to come from somewhere), a rank above manager made the hierarchy make sense: admin
+manages managers and waiters, manager manages only waiters.
+
+---
+
+36. No account is ever created or promoted to admin through the API, at all
+
+Not even by another admin. The sole admin account's role was set once, directly against the database,
+by a script written for that purpose and deleted right after. Zero HTTP surface for the top of the
+hierarchy means there's nothing to find, guess, or race — the tradeoff is that recovering a lost
+admin account needs the same direct database access, not an API call.
+
+---
+
+37. A manager can create only waiter accounts; only admin creates managers or changes anyone's role
+
+Mirrors the rank rule everywhere else in the app. `PATCH /api/users/:id/role` moved from
+manager-gated to admin-gated as part of this — a manager could previously promote a waiter to
+manager themselves, which no longer fit once "who becomes a manager" was meant to be admin's call.
+
+---
+
+38. Password reset follows the exact same authority rule as account creation
+
+Reused `canManage(callerRole, targetRole)` rather than writing a second permission check — a manager
+resets a waiter's password, an admin resets a manager's or a waiter's, nobody resets an admin's this
+way. This is the app's whole answer to "forgot password," since there's no email infrastructure to
+send a reset link.
+
+---
+
+39. The create-account form reveals the new password once, with a copy button, instead of clearing it immediately
+
+The form used to reset right after a successful create, which meant a missed copy or a closed tab
+lost the password before it reached the new hire, with no way to see it again (correctly — it's never
+stored anywhere retrievable). Now it stays on screen in a dismissible card, explicitly labeled as a
+one-time reveal, the same pattern AWS/GitHub use for access keys. If it still gets lost, resetting the
+password again is free and was already built — no separate recovery path was needed.
 
 
 

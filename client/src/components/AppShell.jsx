@@ -1,5 +1,6 @@
 import { Outlet, useNavigate, NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { isManagerOrAbove } from "../lib/roles";
 import { LogoutIcon } from "./icons";
 
 const NAV_LINK_CLASS = ({ isActive }) =>
@@ -10,6 +11,7 @@ const NAV_LINK_CLASS = ({ isActive }) =>
 export function AppShell() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const isManager = isManagerOrAbove(user?.role);
 
   async function handleLogout() {
     await logout();
@@ -40,6 +42,11 @@ export function AppShell() {
               <NavLink to="/orders" className={NAV_LINK_CLASS}>
                 Orders
               </NavLink>
+              {isManager && (
+                <NavLink to="/team" className={NAV_LINK_CLASS}>
+                  Team
+                </NavLink>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-4">

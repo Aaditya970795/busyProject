@@ -2,11 +2,9 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma.js";
 
-const SALT_ROUNDS = 10;
 const COOKIE_NAME = "token";
 const TOKEN_TTL = "7d";
 const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const VALID_ROLES = ["manager", "waiter"];
 
 function setAuthCookie(res, token) {
   res.cookie(COOKIE_NAME, token, {
@@ -23,36 +21,9 @@ function toPublicUser(user) {
   return publicUser;
 }
 
-export async function register(req, res) {
-  const { name, email, password, role } = req.body ?? {};
-
-  if (typeof name !== "string" || !name.trim()) {
-    return res.status(400).json({ error: "name is required" });
-  }
-  if (typeof email !== "string" || !email.trim()) {
-    return res.status(400).json({ error: "email is required" });
-  }
-  if (typeof password !== "string" || password.length < 8) {
-    return res.status(400).json({ error: "password must be at least 8 characters" });
-  }
-  if (!VALID_ROLES.includes(role)) {
-    return res.status(400).json({ error: `role must be one of: ${VALID_ROLES.join(", ")}` });
-  }
-
-  const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-
-  try {
-    const user = await prisma.user.create({
-      data: { name: name.trim(), email: email.trim().toLowerCase(), passwordHash, role },
-    });
-    return res.status(201).json({ user: toPublicUser(user) });
-  } catch (err) {
-    if (err.code === "P2002") {
-      return res.status(409).json({ error: "Email already registered" });
-    }
-    throw err;
-  }
-}
+// There's no public registration endpoint at all — every account is created by an admin or a
+// manager (see POST /api/users in user.controller.js), never self-service. A stranger who finds
+// this API shouldn't be able to create even a waiter account, let alone anything higher.
 
 export async function login(req, res) {
   const { email, password } = req.body ?? {};

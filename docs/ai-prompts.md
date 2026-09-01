@@ -234,4 +234,139 @@ line in `docs/architecture.md` from Task 4 out of date (it used to say listing o
 everyone). It didn't rewrite that line on its own since I hadn't asked for a docs pass that turn, just
 told me about it — which is exactly what I wanted.
 
+---
+
+## Task 7 — Bulk menu updates and CSV order export
+
+### What I asked for
+
+Told it this was task 6 of 10 (numbering already a step off because of table management), and asked
+for two separate things: managers being able to select several menu items and apply one
+price/availability change to all of them at once, with a per-item report of what succeeded and what
+got rejected instead of the whole batch failing over one bad item; and a CSV export of a day's
+orders, with lines, totals, and status. Told it to ask before installing a CSV library or confirm it
+was hand-writing the output, and to verify with real requests — a mixed valid/invalid bulk update,
+and an exported file I could actually open and check the totals against what the order detail page
+showed.
+
+### What it came back with
+
+Built both. The bulk update processes each id independently in its own try/catch rather than one
+transaction, so a bad id or a negative price only rejects the items actually affected, and it proved
+that with a real batch mixing valid ids, a nonexistent one, and a negative-price attempt. For the
+export, it picked a row-per-line shape with the order fields repeated, and asked upfront whether to
+hand-write the CSV or install a library.
+
+### What I had to catch or fix along the way
+
+I told it to install a library when it asked, then caught myself and told it to use the hand-written
+approach after all — it switched cleanly, undoing the install without pushback. Separately, right
+after this task, I asked it to check for anything I might have missed in what it had just built, and
+it found a real CSV-formula-injection hole in the export feature (a waiter's own display name or a
+void reason they typed could execute as a formula when the file's opened in Excel) — explained the
+exploit clearly, fixed it once I said to, and proved the fix with an actual malicious payload that
+came back neutralized.
+
+---
+
+## Task 8 — Security audit and the fixes that came out of it
+
+### What I asked for
+
+This one started with me finding a real bug myself — clicking "new order" created an order with
+nothing in it, no items required at all — and telling it to fix that and then check the rest of the
+project for anything else I'd missed. Once it came back with a list of findings, I told it to fix all
+of them, one at a time, verifying each one actually worked and didn't reopen anything before moving
+to the next.
+
+### What it came back with
+
+Fixed the empty-order bug first (an order now needs at least one item to even exist, created
+atomically with it), then did a real audit rather than a surface read — re-read every controller,
+checked the actual database indexes against what the schema declared, and registered a throwaway
+account live to prove the self-registration hole was real before reporting it. It came back with one
+critical finding (anyone could register as a manager) and four smaller ones (missing indexes, an
+order-detail endpoint that never got the visibility check the rest of the app has, a
+table-double-booking race condition, and an endpoint leaking every coworker's email). It fixed all
+five in the order I asked, and for the race condition specifically, it didn't just reason about it —
+it fired real concurrent requests at the same table and checked the database afterward to prove
+exactly one order won, not just that the response codes looked right.
+
+### What I had to catch or fix along the way
+
+Nothing I had to catch — but it caught something serious on its own while fixing the first item:
+making self-registration safe exposed that a demoted user's existing login cookie kept their old
+permissions for up to a week, because the server trusted the role stored in the token instead of
+checking the database. It found this mid-fix, explained exactly why, fixed it as part of the same
+pass, and proved it by demoting a test account and confirming their old cookie lost access
+immediately, no re-login needed.
+
+---
+
+## Task 9 — No more self-registration: admin/manager/waiter account provisioning
+
+### What I asked for
+
+After the security fixes, I asked the obvious follow-up: if nobody can self-register as a manager
+anymore, how does a manager account ever get created? I went back and forth with it on the actual
+design — it suggested a few standard bootstrap patterns, then I described what I actually wanted: a
+real admin tier above manager, where admin creates managers (and can create waiters too), a manager
+can only create waiter accounts, and I raised the concern myself that self-registration for waiters
+was also a problem since anyone who found the site could make themselves an account. It agreed and
+we settled on removing public registration entirely.
+
+### What it came back with
+
+Built a real three-level role hierarchy (waiter/manager/admin) with one shared rank-check helper
+reused everywhere instead of scattered exact-role comparisons, removed the register endpoint and page
+completely, and added account-creation and role-change endpoints gated the way we'd agreed — a
+manager can create a waiter, only admin creates a manager or changes anyone's role, and admin itself
+is never assignable through the API at all. For bootstrapping the very first admin, it wrote a
+one-time script, asked me which account should become admin, ran it once directly against the
+database, and deleted the script immediately after — never touched over HTTP. It proved the whole
+thing with real accounts: a manager blocked from creating another manager, a waiter blocked from
+creating any account, a manager blocked from the role-change endpoint, and admin still able to do
+everything a manager could on top of the new account-management powers.
+
+### What I had to catch or fix along the way
+
+Nothing to fix, but there was real back-and-forth on the design itself before any code got written —
+this wasn't a case of it just picking an approach on its own, I was actively deciding the shape of
+the account model with it across a few messages, which is different from most earlier tasks where I
+handed over a spec and it built to it.
+
+---
+
+## Task 10 — Password reset, and not losing the password you just set
+
+### What I asked for
+
+Asked what happens if a waiter or manager forgets their password, given there's no email system to
+send a reset link. It laid out the tradeoff clearly rather than just building something — recommended
+the same authority model as account creation (whoever can create an account can reset its password)
+instead of anything requiring email infrastructure, and I agreed. Separately I asked a second,
+related question first without wanting anything built yet — what if the admin or manager who just
+set someone's password loses track of it before sharing it — and it told me not to store the password
+anywhere retrievable, even though I was half-fishing for whether that made sense, and instead
+recommended showing it once on a success screen with a copy button, plus pointing out that "reset it
+again" is already a full solution to a lost password. I then asked it to actually build that second
+part.
+
+### What it came back with
+
+Built the password-reset endpoint following the same manager-resets-waiter, admin-resets-manager-or-
+waiter rule as account creation, reusing the same permission check rather than writing a new one. For
+the UX fix, the create-account form now shows a dismissible card with the name/email/password and a
+copy button after a successful create, instead of clearing the form immediately. It tested the reset
+endpoint with real accounts (a manager resetting a waiter's password, a manager blocked from
+resetting another manager's, admin blocked from resetting even their own), and for the UX fix
+specifically, it opened an actual browser, filled out the form, clicked copy, and pasted the
+clipboard contents into another field to prove the copy button worked — not just that the card
+rendered.
+
+### What I had to catch or fix along the way
+
+Nothing — both parts went through clean, and it correctly declined to overbuild anything (no email
+sending, no token-based reset flow) beyond what the app's actual infrastructure could support.
+
 

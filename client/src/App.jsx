@@ -1,9 +1,9 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { LoginPage } from "./pages/LoginPage";
-import { RegisterPage } from "./pages/RegisterPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { MenuPage } from "./pages/MenuPage";
 import { TablesPage } from "./pages/TablesPage";
+import { TeamPage } from "./pages/TeamPage";
 import { OrdersPage } from "./pages/OrdersPage";
 import { OrderDetailPage } from "./pages/OrderDetailPage";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -15,7 +15,6 @@ export default function App() {
     <Routes>
       <Route element={<PublicOnlyRoute />}>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
       </Route>
 
       <Route element={<ProtectedRoute />}>
@@ -23,6 +22,7 @@ export default function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/menu" element={<MenuPage />} />
           <Route path="/tables" element={<TablesPage />} />
+          <Route path="/team" element={<TeamPage />} />
           <Route path="/orders" element={<OrdersPage />} />
           <Route path="/orders/:id" element={<OrderDetailPage />} />
         </Route>

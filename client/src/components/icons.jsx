@@ -82,6 +82,22 @@ export function UserPlusIcon(props) {
   );
 }
 
+export function CheckIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" {...BASE} {...props}>
+      <path d="M5 12.5 10 17l9-10" />
+    </svg>
+  );
+}
+
+export function XIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" {...BASE} {...props}>
+      <path d="M6 6l12 12M18 6 6 18" />
+    </svg>
+  );
+}
+
 export function TrashIcon(props) {
   return (
     <svg viewBox="0 0 24 24" width="16" height="16" {...BASE} {...props}>

@@ -39,11 +39,22 @@ export async function create(req, res) {
   // Re-adding a number that was previously removed restores the same row instead of creating
   // a second one, since `number` is unique — this keeps the table's history (and the unique
   // constraint) intact rather than erroring on a number the manager clearly wants back.
-  const table = existing
-    ? await prisma.table.update({ where: { number }, data: { isArchived: false } })
-    : await prisma.table.create({ data: { number } });
+  try {
+    const table = existing
+      ? await prisma.table.update({ where: { number }, data: { isArchived: false } })
+      : await prisma.table.create({ data: { number } });
 
-  return res.status(existing ? 200 : 201).json({ table });
+    return res.status(existing ? 200 : 201).json({ table });
+  } catch (err) {
+    // Two managers adding the same new table number at the same instant can both pass the
+    // `existing` check above before either commits — the database's own unique constraint on
+    // `number` is what actually prevents the duplicate; this just turns that into the same
+    // clean 409 instead of an unhandled 500.
+    if (err.code === "P2002") {
+      return res.status(409).json({ error: `Table ${number} already exists` });
+    }
+    throw err;
+  }
 }
 
 async function setArchived(req, res, isArchived) {

@@ -2,11 +2,22 @@ import { prisma } from "../lib/prisma.js";
 import { canActOnOrder, orderInvolvesWaiter } from "../lib/orderAccess.js";
 import { OPEN_STATUSES } from "../lib/orderStatus.js";
 import { Prisma } from "../../generated/prisma/client.ts";
+import { toCsv } from "../lib/csv.js";
+import { atLeast } from "../lib/roles.js";
 
 const WAITER_PUBLIC_SELECT = { id: true, name: true, email: true, role: true };
 const SORT_FIELDS = { placed: "createdAt", status: "status", table: "tableNumber" };
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
+
+// Thrown inside the createOrder transaction to bail out with a clean 409 instead of letting the
+// generic error handler treat "the table is genuinely occupied" as an unexpected server error.
+class TableOccupiedError extends Error {
+  constructor(tableNumber) {
+    super(`Table ${tableNumber} is currently occupied`);
+    this.tableNumber = tableNumber;
+  }
+}
 
 function computeTotal(lines) {
   return lines
@@ -55,10 +66,22 @@ function describeIllegalTransition(currentStatus, requestedStatus) {
 }
 
 export async function createOrder(req, res) {
-  const { table_number } = req.body ?? {};
+  const { table_number, menu_item_id, quantity, special_instructions } = req.body ?? {};
 
   if (!Number.isInteger(table_number) || table_number <= 0) {
     return res.status(400).json({ error: "table_number must be a positive integer" });
+  }
+  // An order with no items on it isn't a real order — require the first item up front instead
+  // of allowing an empty shell to be created and left sitting there. Further items still go
+  // through the normal POST /:id/lines route once the order exists.
+  if (typeof menu_item_id !== "string" || !menu_item_id) {
+    return res.status(400).json({ error: "menu_item_id is required — an order needs at least one item" });
+  }
+  if (!Number.isInteger(quantity) || quantity <= 0) {
+    return res.status(400).json({ error: "quantity must be a positive integer" });
+  }
+  if (special_instructions !== undefined && typeof special_instructions !== "string") {
+    return res.status(400).json({ error: "special_instructions must be a string" });
   }
 
   // Waiters pick a table from the manager-maintained list (see table.controller.js) rather
@@ -70,21 +93,65 @@ export async function createOrder(req, res) {
     return res.status(400).json({ error: `Table ${table_number} does not exist` });
   }
 
-  const occupyingOrder = await prisma.order.findFirst({
-    where: { tableNumber: table_number, isArchived: false, status: { in: [...OPEN_STATUSES] } },
-  });
-  if (occupyingOrder) {
-    return res.status(409).json({ error: `Table ${table_number} is currently occupied` });
+  const menuItem = await prisma.menuItem.findUnique({ where: { id: menu_item_id } });
+  if (!menuItem) {
+    return res.status(404).json({ error: "Menu item not found" });
   }
 
-  const order = await prisma.order.create({
-    data: {
-      tableNumber: table_number,
-      primaryWaiterId: req.user.id,
-    },
-  });
+  // The occupancy check and the create used to be two separate, unlocked statements — two
+  // requests for the same table arriving close enough together could both pass the check
+  // before either committed, double-booking the table. Serializable isolation makes Postgres
+  // detect that overlap: whichever transaction commits second gets a P2034 write-conflict
+  // error instead of silently succeeding, and gets told to retry.
+  try {
+    const order = await prisma.$transaction(
+      async (tx) => {
+        const occupyingOrder = await tx.order.findFirst({
+          where: { tableNumber: table_number, isArchived: false, status: { in: [...OPEN_STATUSES] } },
+        });
+        if (occupyingOrder) {
+          throw new TableOccupiedError(table_number);
+        }
 
-  return res.status(201).json({ order });
+        // The order and its first line are created together in one nested write so the two
+        // can never land as separate statements — either both exist or neither does.
+        return tx.order.create({
+          data: {
+            tableNumber: table_number,
+            primaryWaiterId: req.user.id,
+            lines: {
+              create: [
+                {
+                  menuItemId: menu_item_id,
+                  quantity,
+                  specialInstructions: special_instructions?.trim() || null,
+                  unitPrice: menuItem.price,
+                },
+              ],
+            },
+          },
+          include: { lines: { include: { menuItem: true } } },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    );
+
+    return res.status(201).json({ order });
+  } catch (err) {
+    if (err instanceof TableOccupiedError) {
+      return res.status(409).json({ error: `Table ${table_number} is currently occupied` });
+    }
+    // A Postgres serialization failure (SQLSTATE 40001) is how the two-concurrent-requests
+    // case actually surfaces with the @prisma/adapter-pg driver this project uses — as a
+    // DriverAdapterError, not the P2034 code Prisma's own docs describe for its default
+    // engine. Checking the raw SQLSTATE is what's actually portable here.
+    if (err.code === "P2034" || err.cause?.originalCode === "40001") {
+      return res
+        .status(409)
+        .json({ error: `Table ${table_number} was just taken by another order — please try again` });
+    }
+    throw err;
+  }
 }
 
 // Builds the list of order ids whose table number contains `search` as a substring. tableNumber
@@ -123,11 +190,11 @@ export async function listOrders(req, res) {
 
   const and = [{ isArchived: false }];
 
-  // Visibility: a manager sees every order; a waiter only sees orders they're attached to —
-  // the same rule listMyOrders uses (see orderInvolvesWaiter), just applied to the caller
-  // instead of an arbitrary target, so this list can never return an order the viewer
-  // couldn't otherwise see, no matter what filters they combine it with.
-  if (req.user.role !== "manager") {
+  // Visibility: a manager (or admin) sees every order; a waiter only sees orders they're
+  // attached to — the same rule listMyOrders uses (see orderInvolvesWaiter), just applied to
+  // the caller instead of an arbitrary target, so this list can never return an order the
+  // viewer couldn't otherwise see, no matter what filters they combine it with.
+  if (!atLeast(req.user.role, "manager")) {
     and.push(orderInvolvesWaiter(req.user.id));
   }
 
@@ -182,6 +249,93 @@ export async function listMyOrders(req, res) {
   return res.json({ orders });
 }
 
+const CSV_COLUMNS = [
+  "order_id",
+  "table_number",
+  "order_status",
+  "waiter",
+  "placed_at",
+  "menu_item",
+  "quantity",
+  "unit_price",
+  "line_status",
+  "void_reason",
+  "order_total",
+];
+
+// One row per order line, with the order-level fields (id, table, status, waiter, placed time,
+// total) repeated on every line's row — the simplest shape that still opens cleanly in a
+// spreadsheet with one line item per row. An order with no lines yet still gets a single row
+// (with the line-specific columns blank) so it isn't silently missing from the export.
+function ordersToCsv(orders) {
+  const rows = [];
+  for (const order of orders) {
+    const total = computeTotal(order.lines);
+    const orderFields = [
+      order.id,
+      order.tableNumber,
+      order.status,
+      order.primaryWaiter.name,
+      order.createdAt.toISOString(),
+    ];
+
+    if (order.lines.length === 0) {
+      rows.push([...orderFields, "", "", "", "", "", total]);
+      continue;
+    }
+
+    for (const line of order.lines) {
+      rows.push([
+        ...orderFields,
+        line.menuItem.name,
+        line.quantity,
+        line.unitPrice.toFixed(2),
+        line.status,
+        line.voidReason ?? "",
+        total,
+      ]);
+    }
+  }
+  return toCsv(CSV_COLUMNS, rows);
+}
+
+export async function exportOrders(req, res) {
+  const { date } = req.query;
+
+  if (typeof date !== "string" || !date) {
+    return res.status(400).json({ error: "date is required (YYYY-MM-DD)" });
+  }
+  const start = new Date(`${date}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime())) {
+    return res.status(400).json({ error: "date must be a valid YYYY-MM-DD date" });
+  }
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+
+  // Assumption: a waiter's export respects the same visibility as the order list (Task 6) —
+  // they only get orders they're the primary waiter or a collaborator on for that day; a
+  // manager gets every order placed that day, same as GET /orders.
+  const where = {
+    isArchived: false,
+    createdAt: { gte: start, lt: end },
+    ...(!atLeast(req.user.role, "manager") ? orderInvolvesWaiter(req.user.id) : {}),
+  };
+
+  const orders = await prisma.order.findMany({
+    where,
+    include: {
+      lines: { include: { menuItem: true }, orderBy: { createdAt: "asc" } },
+      primaryWaiter: { select: { name: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const csv = ordersToCsv(orders);
+
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="orders-${date}.csv"`);
+  return res.status(200).send(csv);
+}
+
 export async function getOrder(req, res) {
   const { id } = req.params;
 
@@ -195,6 +349,9 @@ export async function getOrder(req, res) {
 
   if (!order) {
     return res.status(404).json({ error: "Order not found" });
+  }
+  if (!(await canActOnOrder(req.user, order))) {
+    return res.status(403).json({ error: "You do not have access to this order" });
   }
 
   return res.json({ order, total: computeTotal(order.lines) });
@@ -216,7 +373,7 @@ export async function addCollaborator(req, res) {
   // Assumption: the brief doesn't say who may attach collaborators, so this restricts it to
   // whoever is already accountable for the order — its primary waiter — or a manager. That
   // keeps a waiter from inserting themselves into someone else's order uninvited.
-  if (req.user.role !== "manager" && req.user.id !== order.primaryWaiterId) {
+  if (!atLeast(req.user.role, "manager") && req.user.id !== order.primaryWaiterId) {
     return res.status(403).json({ error: "Only the primary waiter or a manager can add collaborators" });
   }
 

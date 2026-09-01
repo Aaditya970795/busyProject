@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 export function LoginPage() {
@@ -53,10 +53,7 @@ export function LoginPage() {
           </button>
         </form>
         <p className="mt-4 text-center text-sm text-slate-500">
-          No account?{" "}
-          <Link to="/register" className="text-slate-900 underline">
-            Register
-          </Link>
+          No account? Ask your manager or admin to set one up for you.
         </p>
       </div>
     </div>

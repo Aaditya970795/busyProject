@@ -2,12 +2,13 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
+import { isManagerOrAbove } from "../lib/roles";
 import { formatCurrency } from "../lib/format";
-import { PlusIcon, ArchiveIcon, RestoreIcon } from "../components/icons";
+import { PlusIcon, ArchiveIcon, RestoreIcon, CheckIcon, XIcon } from "../components/icons";
 
 export function MenuPage() {
   const { user } = useAuth();
-  const isManager = user?.role === "manager";
+  const isManager = isManagerOrAbove(user?.role);
   const queryClient = useQueryClient();
   const [showArchived, setShowArchived] = useState(false);
 
@@ -45,6 +46,22 @@ export function MenuPage() {
     onSuccess: invalidateMenu,
   });
 
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkPrice, setBulkPrice] = useState("");
+  const [bulkAvailability, setBulkAvailability] = useState("");
+  const [bulkResults, setBulkResults] = useState(null);
+
+  const bulkMutation = useMutation({
+    mutationFn: (payload) => api.patch("/menu-items/bulk", payload),
+    onSuccess: (result) => {
+      invalidateMenu();
+      setBulkResults(result.results);
+      setSelectedIds(new Set());
+      setBulkPrice("");
+      setBulkAvailability("");
+    },
+  });
+
   function handleCreate(e) {
     e.preventDefault();
     const parsedPrice = parseFloat(price);
@@ -54,6 +71,30 @@ export function MenuPage() {
 
   function toggleAvailable(item) {
     updateMutation.mutate({ id: item.id, is_available: !item.isAvailable });
+  }
+
+  function toggleSelected(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function handleApplyBulk(e) {
+    e.preventDefault();
+    const changes = {};
+    if (bulkPrice.trim() !== "") {
+      const parsed = parseFloat(bulkPrice);
+      if (Number.isNaN(parsed)) return;
+      changes.price = parsed;
+    }
+    if (bulkAvailability !== "") {
+      changes.is_available = bulkAvailability === "true";
+    }
+    if (Object.keys(changes).length === 0 || selectedIds.size === 0) return;
+    bulkMutation.mutate({ ids: [...selectedIds], changes });
   }
 
   return (
@@ -86,6 +127,7 @@ export function MenuPage() {
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
+                {isManager && <th className="w-8 px-5 py-3"></th>}
                 <th className="px-5 py-3 font-medium">Name</th>
                 <th className="px-5 py-3 font-medium">Price</th>
                 <th className="px-5 py-3 font-medium">Availability</th>
@@ -98,6 +140,18 @@ export function MenuPage() {
                   key={item.id}
                   className={`transition-colors hover:bg-slate-50 ${item.isArchived ? "opacity-50" : ""}`}
                 >
+                  {isManager && (
+                    <td className="px-5 py-3">
+                      {!item.isArchived && (
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(item.id)}
+                          onChange={() => toggleSelected(item.id)}
+                          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                      )}
+                    </td>
+                  )}
                   <td className="px-5 py-3 font-medium text-slate-900">{item.name}</td>
                   <td className="px-5 py-3 text-slate-600">{formatCurrency(item.price)}</td>
                   <td className="px-5 py-3">
@@ -149,13 +203,94 @@ export function MenuPage() {
               ))}
               {data.menuItems.length === 0 && (
                 <tr>
-                  <td colSpan={isManager ? 4 : 3} className="px-5 py-10 text-center text-slate-400">
+                  <td colSpan={isManager ? 5 : 3} className="px-5 py-10 text-center text-slate-400">
                     {showArchived ? "No archived items." : "No menu items yet."}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {isManager && selectedIds.size > 0 && (
+        <form
+          onSubmit={handleApplyBulk}
+          className="mt-4 flex flex-wrap items-end gap-3 rounded-xl border border-indigo-200 bg-indigo-50 p-4"
+        >
+          <span className="text-sm font-medium text-indigo-900">
+            {selectedIds.size} item{selectedIds.size === 1 ? "" : "s"} selected
+          </span>
+          <div className="w-32">
+            <label className="block text-sm font-medium text-slate-700">New price (₹)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={bulkPrice}
+              onChange={(e) => setBulkPrice(e.target.value)}
+              placeholder="unchanged"
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
+          <div className="w-40">
+            <label className="block text-sm font-medium text-slate-700">Availability</label>
+            <select
+              value={bulkAvailability}
+              onChange={(e) => setBulkAvailability(e.target.value)}
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            >
+              <option value="">Unchanged</option>
+              <option value="true">Mark available</option>
+              <option value="false">Mark unavailable</option>
+            </select>
+          </div>
+          <button
+            type="submit"
+            disabled={bulkMutation.isPending || (bulkPrice.trim() === "" && bulkAvailability === "")}
+            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {bulkMutation.isPending ? "Applying…" : "Apply"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedIds(new Set())}
+            className="text-sm text-indigo-700 hover:underline"
+          >
+            Clear selection
+          </button>
+        </form>
+      )}
+      {bulkMutation.error && <p className="mt-2 text-sm text-red-600">{bulkMutation.error.message}</p>}
+
+      {bulkResults && (
+        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium text-slate-700">Bulk update results</h2>
+            <button onClick={() => setBulkResults(null)} className="text-sm text-slate-400 hover:text-slate-600">
+              Dismiss
+            </button>
+          </div>
+          <ul className="mt-2 space-y-1 text-sm">
+            {bulkResults.map((result) => {
+              const item = data?.menuItems.find((m) => m.id === result.id);
+              return (
+                <li key={result.id} className="flex items-center gap-2">
+                  {result.status === "ok" ? (
+                    <CheckIcon width="14" height="14" className="text-emerald-600" />
+                  ) : (
+                    <XIcon width="14" height="14" className="text-red-600" />
+                  )}
+                  <span className="font-medium text-slate-800">{item?.name ?? result.id}</span>
+                  {result.status === "ok" ? (
+                    <span className="text-emerald-700">updated</span>
+                  ) : (
+                    <span className="text-red-600">rejected — {result.reason}</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
 

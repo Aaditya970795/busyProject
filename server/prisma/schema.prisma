@@ -11,6 +11,7 @@ datasource db {
 }
 
 enum Role {
+  admin
   manager
   waiter
 }
@@ -75,6 +76,8 @@ model Order {
 
   @@index([status])
   @@index([createdAt])
+  @@index([primaryWaiterId])
+  @@index([tableNumber])
 }
 
 model OrderLine {
@@ -89,6 +92,8 @@ model OrderLine {
   status              LineStatus @default(active)
   voidReason          String?
   createdAt           DateTime   @default(now())
+
+  @@index([orderId])
 }
 
 model OrderCollaborator {
@@ -99,4 +104,5 @@ model OrderCollaborator {
   addedAt  DateTime @default(now())
 
   @@id([orderId, waiterId])
+  @@index([waiterId])
 }

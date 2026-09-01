@@ -1,4 +1,5 @@
 import { prisma } from "./prisma.js";
+import { atLeast } from "./roles.js";
 
 // The shape of "this waiter has a relationship to the order" — primary waiter or a listed
 // collaborator — as a Prisma `where` fragment instead of a check against an already-loaded
@@ -14,7 +15,7 @@ export function orderInvolvesWaiter(waiterId) {
 // added to as a collaborator. Every order-mutating route should call this (with the order
 // already loaded) instead of re-deriving the rule itself.
 export async function canActOnOrder(user, order) {
-  if (user.role === "manager") return true;
+  if (atLeast(user.role, "manager")) return true;
   if (order.primaryWaiterId === user.id) return true;
 
   const collaborator = await prisma.orderCollaborator.findUnique({

@@ -1,27 +1,33 @@
-const API_BASE = "/api";
+import axios from "axios";
+
+const client = axios.create({
+  baseURL: "/api",
+  withCredentials: true,
+  headers: { "Content-Type": "application/json" },
+});
 
 async function request(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
-  });
-
-  const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
-
-  if (!res.ok) {
-    const error = new Error(data?.error || `Request failed with status ${res.status}`);
-    error.status = res.status;
-    throw error;
+  try {
+    const res = await client.request({
+      url: path,
+      method: options.method,
+      data: options.body,
+      headers: options.headers,
+    });
+    return res.data ?? null;
+  } catch (err) {
+    if (err.response) {
+      const error = new Error(err.response.data?.error || `Request failed with status ${err.response.status}`);
+      error.status = err.response.status;
+      throw error;
+    }
+    throw err;
   }
-
-  return data;
 }
 
 export const api = {
   get: (path) => request(path, { method: "GET" }),
-  post: (path, body) => request(path, { method: "POST", body: JSON.stringify(body) }),
-  patch: (path, body) => request(path, { method: "PATCH", body: JSON.stringify(body) }),
+  post: (path, body) => request(path, { method: "POST", body }),
+  patch: (path, body) => request(path, { method: "PATCH", body }),
   delete: (path) => request(path, { method: "DELETE" }),
 };

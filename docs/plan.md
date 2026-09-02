@@ -280,3 +280,38 @@ Running the sweep also cleared out several long-dead orders left over from much 
 sessions that had been sitting in `placed` since before this feature existed — a real demonstration
 that the sweep works on genuinely stale data, not just a freshly-created test order.
 
+### Task 15 — Staff deactivation, a real answer to the "customer's still waiting" worry, and toast notifications
+
+Three things asked together, after a full audit of everything built so far (the audit itself
+produced no code see `docs/decisions.md` for the handful of real gaps it surfaced, like no rate
+limiting on login and an auth cookie that assumes client and API share a domain, both left as
+known, deliberately-unfixed notes for whenever deployment happens).
+
+First, a way to remove a waiter or manager from Team when they leave. Checking the schema before
+writing anything showed a real hard delete isn't just undesirable, it's impossible every order a
+person's ever touched references them with no cascade, so Postgres itself would reject deleting
+anyone with order history. Built as deactivation instead (`User.isActive`), following the exact
+pattern Tables and MenuItems already use: the button still says "Deactivate," a deactivated account
+can't log in and loses access on its very next request if already logged in (reusing the same
+database re-check decision #29 built for a demoted user's stale token), drops out of every picker by
+default, and can be reactivated. Same authority rule as every other account action, plus two guards:
+nobody can deactivate themselves, and the last remaining manager can't be deactivated mirroring
+the existing "can't demote the last manager" rule exactly.
+
+Second, a real worry about the Task 14 auto-clear sweep: a customer could be physically sitting at a
+table when their order gets auto-cancelled at 45 minutes, even if a waiter already knows about the
+delay. The fix: the sweep now skips any order that's ever been acknowledged, full stop. An
+acknowledgment is a human explicitly taking responsibility for that customer the system shouldn't
+override that judgment call with a timer. An acknowledged order that's still stuck just keeps
+escalating to the critical tier and shows as a "repeat" alert instead of getting cancelled out from
+under someone.
+
+Third, telling the affected waiter when their order does get auto-cancelled. No websockets same
+polling pattern as everything else "live" in this app. A new `Notification` table gets one row
+whenever the sweep cancels an order; the browser polls for unread ones every 30 seconds and shows
+each as a toast (`react-toastify`) before marking it read.
+
+Why this came after every other feature task: deactivation only matters once there's a real staff
+roster and order history to protect (Tasks 9-10's account model, Task 2 onward's order data); the
+auto-clear fix and notifications only make sense once Task 14's sweep itself existed to fix.
+

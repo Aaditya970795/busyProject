@@ -19,8 +19,13 @@ export async function requireAuth(req, res, next) {
   // on every request, not the JWT's `role` claim. Otherwise a manager demoted to waiter (or a
   // deleted user) keeps acting on their old role/access for as long as their existing token is
   // valid (up to 7 days), since nothing about the token itself changes when the database does.
-  const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { id: true, role: true } });
-  if (!user) {
+  // Same reasoning covers `isActive`: a deactivated waiter's existing session stops working on
+  // its very next request, not just on their next login attempt.
+  const user = await prisma.user.findUnique({
+    where: { id: payload.sub },
+    select: { id: true, role: true, isActive: true },
+  });
+  if (!user || !user.isActive) {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 

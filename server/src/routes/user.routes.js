@@ -1,5 +1,12 @@
 import { Router } from "express";
-import { listUsers, createUser, updateRole, resetPassword } from "../controllers/user.controller.js";
+import {
+  listUsers,
+  createUser,
+  updateRole,
+  resetPassword,
+  deactivateUser,
+  reactivateUser,
+} from "../controllers/user.controller.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 
 const router = Router();
@@ -12,5 +19,7 @@ router.patch("/:id/role", requireAuth, requireRole("admin"), updateRole);
 // Same manager-can-only-touch-waiters, admin-can-touch-both split as createUser (checked inside
 // the controller against the target's *current* role).
 router.patch("/:id/password", requireAuth, requireRole("manager"), resetPassword);
+router.post("/:id/deactivate", requireAuth, requireRole("manager"), deactivateUser);
+router.post("/:id/reactivate", requireAuth, requireRole("manager"), reactivateUser);
 
 export default router;

@@ -14,15 +14,29 @@ const SWEEP_INTERVAL_MS = 60 * 1000;
 // human is already blocked from doing this from the alerts page too (see AlertsPage.jsx). A
 // preparing order stuck past every threshold keeps alerting at the critical tier until a person
 // actually resolves it.
+//
+// Also scoped to orders nobody has ever acknowledged (`alertAcknowledgedAt: null`). Once a human
+// acknowledges an alert they've taken responsibility for a customer who's actually there waiting —
+// the timer shouldn't override that judgment call. An acknowledged order that's still stuck just
+// keeps escalating to the critical severity tier (and shows as a "repeat" alert once it reappears)
+// so it stays visible for a manager to act on manually, instead of getting yanked out from under
+// a customer automatically.
 export async function runAutoClearSweep() {
   const cutoff = new Date(Date.now() - autoClearMinutes() * 60 * 1000);
 
   const stuckOrders = await prisma.order.findMany({
-    where: { isArchived: false, status: { in: ["placed", "accepted"] }, createdAt: { lt: cutoff } },
-    select: { id: true, status: true, tableNumber: true },
+    where: {
+      isArchived: false,
+      status: { in: ["placed", "accepted"] },
+      createdAt: { lt: cutoff },
+      alertAcknowledgedAt: null,
+    },
+    select: { id: true, status: true, tableNumber: true, primaryWaiterId: true },
   });
 
   for (const order of stuckOrders) {
+    const message = `Your order for Table ${order.tableNumber} was automatically cancelled — open longer than ${autoClearMinutes()} minutes with no action taken.`;
+
     await prisma.$transaction(async (tx) => {
       await tx.order.update({ where: { id: order.id }, data: { status: "cancelled" } });
       await logEvent(tx, {
@@ -33,10 +47,13 @@ export async function runAutoClearSweep() {
         actorId: null,
         note: `Open longer than ${autoClearMinutes()} minutes with no action taken.`,
       });
+      await tx.notification.create({
+        data: { userId: order.primaryWaiterId, orderId: order.id, message },
+      });
     });
     console.log(
       `[auto-clear] Cancelled order ${order.id} (table ${order.tableNumber}, was "${order.status}") — ` +
-        `open past the ${autoClearMinutes()}-minute limit.`
+        `open past the ${autoClearMinutes()}-minute limit, never acknowledged.`
     );
   }
 

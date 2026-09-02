@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { isManagerOrAbove, isAdmin as isAdminRole, canManage } from "../lib/roles";
-import { PlusIcon, CheckIcon } from "../components/icons";
+import { PlusIcon, CheckIcon, ArchiveIcon, RestoreIcon } from "../components/icons";
 
 const ROLE_BADGE_CLASS = {
   admin: "bg-violet-50 text-violet-700 ring-violet-600/20",
@@ -17,9 +17,11 @@ export function TeamPage() {
   const isAdmin = isAdminRole(user?.role);
   const queryClient = useQueryClient();
 
+  const [showDeactivated, setShowDeactivated] = useState(false);
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ["users"],
-    queryFn: () => api.get("/users"),
+    queryKey: ["users", showDeactivated],
+    queryFn: () => api.get(`/users${showDeactivated ? "?include_inactive=true" : ""}`),
     enabled: isManager,
   });
 
@@ -66,6 +68,24 @@ export function TeamPage() {
     },
   });
 
+  const [confirmingDeactivateId, setConfirmingDeactivateId] = useState(null);
+
+  // "Delete" in the UI, deactivate underneath — see server/prisma/schema.prisma's isActive
+  // comment for why a real delete isn't just undesirable but actually impossible once someone
+  // has any order history.
+  const deactivateMutation = useMutation({
+    mutationFn: (id) => api.post(`/users/${id}/deactivate`),
+    onSuccess: () => {
+      invalidateUsers();
+      setConfirmingDeactivateId(null);
+    },
+  });
+
+  const reactivateMutation = useMutation({
+    mutationFn: (id) => api.post(`/users/${id}/reactivate`),
+    onSuccess: invalidateUsers,
+  });
+
   function handleCreate(e) {
     e.preventDefault();
     createMutation.mutate({ name: name.trim(), email: email.trim(), password, role });
@@ -98,13 +118,24 @@ export function TeamPage() {
 
   return (
     <div>
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Team</h1>
-        <p className="mt-0.5 text-sm text-slate-500">
-          {isAdmin
-            ? "Add waiter or manager accounts, and change anyone's role."
-            : "Add waiter accounts for new hires — only an admin can create a manager account."}
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Team</h1>
+          <p className="mt-0.5 text-sm text-slate-500">
+            {isAdmin
+              ? "Add waiter or manager accounts, and change anyone's role."
+              : "Add waiter accounts for new hires — only an admin can create a manager account."}
+          </p>
+        </div>
+        <label className="flex items-center gap-2 text-sm text-slate-500">
+          <input
+            type="checkbox"
+            checked={showDeactivated}
+            onChange={(e) => setShowDeactivated(e.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+          />
+          Show deactivated
+        </label>
       </div>
 
       {isLoading && <p className="mt-6 text-sm text-slate-500">Loading…</p>}
@@ -112,6 +143,12 @@ export function TeamPage() {
       {roleMutation.error && <p className="mt-2 text-sm text-red-600">{roleMutation.error.message}</p>}
       {resetPasswordMutation.error && (
         <p className="mt-2 text-sm text-red-600">{resetPasswordMutation.error.message}</p>
+      )}
+      {deactivateMutation.error && (
+        <p className="mt-2 text-sm text-red-600">{deactivateMutation.error.message}</p>
+      )}
+      {reactivateMutation.error && (
+        <p className="mt-2 text-sm text-red-600">{reactivateMutation.error.message}</p>
       )}
 
       {data && (
@@ -128,10 +165,14 @@ export function TeamPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {data.users.map((person) => (
-                <tr key={person.id} className="transition-colors hover:bg-slate-50">
+                <tr
+                  key={person.id}
+                  className={`transition-colors hover:bg-slate-50 ${person.isActive ? "" : "opacity-50"}`}
+                >
                   <td className="px-5 py-3 font-medium text-slate-900">
                     {person.name}
                     {person.id === user.id && <span className="ml-1.5 text-xs text-slate-400">(you)</span>}
+                    {!person.isActive && <span className="ml-1.5 text-xs text-slate-400">(deactivated)</span>}
                   </td>
                   <td className="px-5 py-3 text-slate-600">{person.email ?? "—"}</td>
                   <td className="px-5 py-3">
@@ -143,7 +184,7 @@ export function TeamPage() {
                   </td>
                   <td className="px-5 py-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      {isAdmin && person.role === "waiter" && (
+                      {isAdmin && person.isActive && person.role === "waiter" && (
                         <button
                           onClick={() => roleMutation.mutate({ id: person.id, role: "manager" })}
                           disabled={roleMutation.isPending}
@@ -152,7 +193,7 @@ export function TeamPage() {
                           Promote to manager
                         </button>
                       )}
-                      {isAdmin && person.role === "manager" && (
+                      {isAdmin && person.isActive && person.role === "manager" && (
                         <button
                           onClick={() => roleMutation.mutate({ id: person.id, role: "waiter" })}
                           disabled={roleMutation.isPending}
@@ -161,7 +202,7 @@ export function TeamPage() {
                           Demote to waiter
                         </button>
                       )}
-                      {canManage(user.role, person.role) &&
+                      {canManage(user.role, person.role) && person.isActive &&
                         (resettingId === person.id ? (
                           <form onSubmit={(e) => handleResetSubmit(e, person.id)} className="flex items-center gap-1.5">
                             <input
@@ -200,6 +241,45 @@ export function TeamPage() {
                             Reset password
                           </button>
                         ))}
+                      {canManage(user.role, person.role) && person.id !== user.id && (
+                        person.isActive ? (
+                          confirmingDeactivateId === person.id ? (
+                            <div className="flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs">
+                              <span className="text-red-700">Deactivate {person.name}?</span>
+                              <button
+                                onClick={() => deactivateMutation.mutate(person.id)}
+                                disabled={deactivateMutation.isPending}
+                                className="rounded-md bg-red-600 px-2 py-0.5 font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+                              >
+                                {deactivateMutation.isPending ? "Deactivating…" : "Yes, deactivate"}
+                              </button>
+                              <button
+                                onClick={() => setConfirmingDeactivateId(null)}
+                                className="px-1 text-slate-500 hover:text-slate-700"
+                              >
+                                Never mind
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmingDeactivateId(person.id)}
+                              className="flex items-center gap-1.5 rounded-md border border-slate-300 px-2.5 py-1 text-xs text-slate-700 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+                            >
+                              <ArchiveIcon width="14" height="14" />
+                              Deactivate
+                            </button>
+                          )
+                        ) : (
+                          <button
+                            onClick={() => reactivateMutation.mutate(person.id)}
+                            disabled={reactivateMutation.isPending}
+                            className="flex items-center gap-1.5 rounded-md border border-slate-300 px-2.5 py-1 text-xs text-slate-700 transition-colors hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50"
+                          >
+                            <RestoreIcon width="14" height="14" />
+                            Reactivate
+                          </button>
+                        )
+                      )}
                     </div>
                   </td>
                 </tr>

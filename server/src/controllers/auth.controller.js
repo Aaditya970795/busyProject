@@ -42,6 +42,13 @@ export async function login(req, res) {
     return res.status(401).json({ error: "Invalid email or password" });
   }
 
+  // Checked only after the password already matched — a wrong password always gets the same
+  // generic "Invalid email or password" regardless of active status, so a guess can't be used to
+  // probe whether a given email belongs to a deactivated account.
+  if (!user.isActive) {
+    return res.status(403).json({ error: "This account has been deactivated. Contact your manager or admin." });
+  }
+
   const token = jwt.sign({ sub: user.id, role: user.role }, process.env.JWT_SECRET, {
     expiresIn: TOKEN_TTL,
   });

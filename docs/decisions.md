@@ -631,5 +631,95 @@ two days." `formatMinutes()` (client/src/lib/format.js) picks minutes, hours-and
 days-and-hours depending on magnitude — the same kind of judgment call `formatCurrency` already makes
 for money, just applied to duration.
 
+---
+
+68. A full audit of the project found real gaps, and most of them were deliberately left unfixed
+
+Asked to evaluate everything built against industry standards before adding more features. Found:
+no rate limiting on login, no schema-validation library (routes validate by hand), no request
+logging/observability, no frontend error boundary, and the alert sweep being a single-process
+`setInterval` that would double-process orders behind multiple server instances (already known, see
+decision #66). None of these block anything asked for so far, and fixing all of them wasn't asked
+for noted here so the gap is a documented, deliberate choice, not a silent blind spot. One finding
+does matter for the very next task: the auth cookie is `SameSite=Lax`, which needs client and API on
+the same registrable domain (subdomains are fine; genuinely different domains, e.g. two different
+hosting providers, would silently break login) — worth knowing before deployment.
+
+---
+
+69. A "deleted" staff member is deactivated, never actually deleted checked, not assumed
+
+Before proposing anything, checked whether a real delete was even possible: `Order.primaryWaiterId`
+and `OrderCollaborator.waiterId` are required foreign keys to `User` with no cascade rule, so
+Postgres itself rejects deleting anyone who has ever taken or collaborated on an order which is
+effectively every waiter who's done any real work. `isActive` follows the exact soft-delete pattern
+Tables and MenuItems already use, for the same reason: a deactivated account keeps its full order
+history intact and queryable, and can be reactivated if the removal was a mistake.
+
+---
+
+70. A deactivated account loses access on its very next request, not just its next login attempt
+
+Reuses decision #29's exact mechanism (`requireAuth` re-reading the user from the database on every
+request) with one more condition added `isActive` is checked the same way `role` already is. A
+waiter deactivated mid-shift can't keep using an already-open session for up to 7 days just because
+their token hasn't expired yet.
+
+---
+
+71. Login rejects a deactivated account only after the password already matched
+
+Checked in that order deliberately: a wrong password always returns the same generic "Invalid email
+or password" regardless of whether the account is active, so a guess can't be used to find out
+whether a given email belongs to a deactivated account. Only once the password is confirmed correct
+does the deactivated check run, with a clearer message at that point the person already knows the
+account is theirs, so there's nothing left to protect by staying vague.
+
+---
+
+72. Can't deactivate the last manager, can't deactivate yourself
+
+Two guards added on top of the existing `canManage` authority check. The last-manager one mirrors
+`updateRole`'s identical existing guard against demoting the last manager either way the roster
+would be left with nobody who can manage it. The self-deactivation one is new: nothing else in the
+app stops someone from acting on their own account this way, and an admin locking themselves out by
+accident isn't a case worth allowing just for consistency's sake.
+
+---
+
+73. Auto-clear now skips any order that's ever been acknowledged, not just currently-alerting ones
+
+The original Task 14 sweep only checked `alertAcknowledgedAt` for the reappear-timing calculation,
+not as an exemption from clearing at all. Raised as a real concern: a customer could be physically
+waiting while their order gets auto-cancelled even though a waiter already knows about the delay and
+is handling it. Fixed by adding `alertAcknowledgedAt: null` to the sweep's own `where` clause — once
+a human takes responsibility for an order, the system stops overriding that judgment with a timer.
+The honest trade-off (a single acknowledgment with no follow-through means an order never
+auto-clears) is accepted rather than solved with more logic, because the critical severity tier and
+the "repeat alert" tag (decision #61) already keep a stuck-but-acknowledged order visible to a
+manager, who can still clear it manually at any time.
+
+---
+
+74. Toast notifications are polled, not pushed — `react-toastify` for display, a `Notification`
+    table for knowing when
+
+Same reasoning as decisions #56/#66: this app has no websocket/SSE channel anywhere, and one more
+feature isn't reason enough to add one. A `Notification` row is written (in the same transaction as
+the cancellation) whenever the auto-clear sweep cancels an order; the recipient's browser polls
+`GET /api/notifications/unread` on the same 30-second rhythm as the alerts badge, shows each new one
+as a toast, and marks it read immediately so it can't fire twice. The honest limit: a toast can land
+up to 30 seconds after the actual cancellation, the same trade-off already accepted everywhere else
+"live" in this app.
+
+---
+
+75. A notification's `read` endpoint scopes the update to the caller's own id, not just checked after loading
+
+`markNotificationRead` runs `prisma.notification.updateMany({ where: { id, userId: req.user.id, ... } })`
+instead of loading the row first and checking ownership after — a notification belonging to someone
+else simply doesn't match the query and comes back as a 404, the same result a real "not found" would
+give, without a separate ownership check that could be gotten wrong.
+
 
 

@@ -9,18 +9,26 @@ const ALL_ROLES = ["admin", "manager", "waiter"];
 const ASSIGNABLE_ROLES = ["manager", "waiter"];
 
 export async function listUsers(req, res) {
-  const { role } = req.query;
+  const { role, include_inactive } = req.query;
 
   if (role !== undefined && !ALL_ROLES.includes(role)) {
     return res.status(400).json({ error: `role must be one of: ${ALL_ROLES.join(", ")}` });
   }
 
+  // Deactivated staff drop out of every picker (collaborator add, waiter filter) by default,
+  // same as an archived menu item or table — `include_inactive` is only used by the Team page
+  // itself, to still show and reactivate them.
+  const where = {
+    ...(role ? { role } : {}),
+    ...(include_inactive === "true" ? {} : { isActive: true }),
+  };
+
   // Every authenticated user can call this (it powers the collaborator picker and the "waiter"
   // filter dropdown, both of which only ever need id/name/role) — but a coworker's email is
   // more than those features need, so it's only included for a manager or admin.
   const users = await prisma.user.findMany({
-    where: role ? { role } : undefined,
-    select: { id: true, name: true, email: atLeast(req.user.role, "manager"), role: true },
+    where,
+    select: { id: true, name: true, email: atLeast(req.user.role, "manager"), role: true, isActive: true },
     orderBy: { name: "asc" },
   });
 
@@ -121,4 +129,62 @@ export async function resetPassword(req, res) {
   await prisma.user.update({ where: { id }, data: { passwordHash } });
 
   return res.json({ ok: true });
+}
+
+// "Delete" a staff account without actually deleting the row — see the schema comment on
+// `isActive` for why a real delete isn't just undesirable but impossible once someone has any
+// order history (primaryWaiterId/waiterId/actorId all reference User with no cascade). Same
+// canManage rule as every other account-management action, plus two guards specific to
+// deactivation: nobody can deactivate themselves (an admin locking themselves out by accident),
+// and the last remaining manager can't be deactivated, mirroring updateRole's identical guard
+// against demoting the last manager — either way, the roster is left with no one who can manage it.
+export async function deactivateUser(req, res) {
+  const { id } = req.params;
+
+  if (id === req.user.id) {
+    return res.status(400).json({ error: "You can't deactivate your own account" });
+  }
+
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+  if (!canManage(req.user.role, user.role)) {
+    return res.status(403).json({ error: "You don't have permission to deactivate this account" });
+  }
+
+  if (user.role === "manager") {
+    const activeManagerCount = await prisma.user.count({ where: { role: "manager", isActive: true } });
+    if (activeManagerCount <= 1) {
+      return res.status(400).json({ error: "Can't deactivate the last manager — promote someone else first" });
+    }
+  }
+
+  const updated = await prisma.user.update({
+    where: { id },
+    data: { isActive: false },
+    select: { id: true, name: true, email: true, role: true, isActive: true },
+  });
+
+  return res.json({ user: updated });
+}
+
+export async function reactivateUser(req, res) {
+  const { id } = req.params;
+
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+  if (!canManage(req.user.role, user.role)) {
+    return res.status(403).json({ error: "You don't have permission to reactivate this account" });
+  }
+
+  const updated = await prisma.user.update({
+    where: { id },
+    data: { isActive: true },
+    select: { id: true, name: true, email: true, role: true, isActive: true },
+  });
+
+  return res.json({ user: updated });
 }

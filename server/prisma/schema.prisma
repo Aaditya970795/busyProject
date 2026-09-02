@@ -43,12 +43,20 @@ model User {
   email        String   @unique
   passwordHash String
   role         Role
+  // A deactivated account can't log in, and an existing session stops working on its very next
+  // request (requireAuth re-reads this on every call, same mechanism decision #29 already relies
+  // on for a demoted user's stale token). Never a hard delete — see decision #58/#63's reasoning,
+  // now applied to staff accounts: primaryWaiterId/waiterId/actorId all reference User with no
+  // cascade, so a real delete would be rejected by the database the moment they have any order
+  // history at all.
+  isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
 
   orders                Order[]
   collaborating         OrderCollaborator[]
   orderEvents           OrderEvent[]
   alertAcknowledgements Order[]             @relation("OrderAlertAcknowledgedBy")
+  notifications         Notification[]
 }
 
 model Table {
@@ -86,6 +94,7 @@ model Order {
   lines         OrderLine[]
   collaborators OrderCollaborator[]
   events        OrderEvent[]
+  notifications Notification[]
 
   @@index([status])
   @@index([createdAt])
@@ -138,4 +147,21 @@ model OrderEvent {
   createdAt DateTime  @default(now())
 
   @@index([orderId])
+}
+
+// A personal inbox row, polled by the recipient's own browser (no push channel in this app — see
+// decision #56/#66) and shown as a toast once, then marked read. The only producer today is the
+// auto-clear sweep telling a waiter their order got cancelled out from under them, but the shape
+// isn't specific to that — any future "tell this one user something" case can reuse it.
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderId   String?
+  order     Order?    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  message   String
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
+
+  @@index([userId, readAt])
 }

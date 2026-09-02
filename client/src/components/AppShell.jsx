@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, useNavigate, NavLink } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { isManagerOrAbove } from "../lib/roles";
@@ -23,6 +25,10 @@ const MOBILE_NAV_LINK_CLASS = ({ isActive }) =>
 // immediately instead of waiting for the next poll.
 const ALERTS_POLL_INTERVAL_MS = 30 * 1000;
 
+// Same polling trade-off as the alerts badge above — no push channel in this app, so a toast for
+// something like an auto-cancelled order can land up to 30s after the fact instead of instantly.
+const NOTIFICATIONS_POLL_INTERVAL_MS = 30 * 1000;
+
 function AlertsBadge({ count }) {
   if (!count) return null;
   return (
@@ -44,6 +50,29 @@ export function AppShell() {
     refetchInterval: ALERTS_POLL_INTERVAL_MS,
   });
   const alertCount = alertsData?.count ?? 0;
+
+  const { data: notificationsData } = useQuery({
+    queryKey: ["notifications", "unread"],
+    queryFn: () => api.get("/notifications/unread"),
+    refetchInterval: NOTIFICATIONS_POLL_INTERVAL_MS,
+  });
+
+  const markNotificationReadMutation = useMutation({
+    mutationFn: (id) => api.post(`/notifications/${id}/read`),
+  });
+
+  // Toasting happens as a side effect of the poll landing new rows, not inside the query itself —
+  // TanStack Query v5 has no onSuccess for useQuery. Marking each one read immediately means it
+  // can't come back on the next poll and toast a second time.
+  useEffect(() => {
+    const notifications = notificationsData?.notifications;
+    if (!notifications?.length) return;
+    for (const notification of notifications) {
+      toast.error(notification.message);
+      markNotificationReadMutation.mutate(notification.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notificationsData]);
 
   async function handleLogout() {
     setMobileMenuOpen(false);
@@ -109,6 +138,7 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100">
+      <ToastContainer position="top-right" autoClose={6000} newestOnTop />
       <nav className="sticky top-0 z-10 border-b border-slate-200 bg-white/80 backdrop-blur">
         <div className="flex items-center justify-between px-4 py-3 sm:px-6">
           <div className="flex items-center gap-6">

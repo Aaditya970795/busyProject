@@ -587,4 +587,73 @@ local dependency was still correctly pinned at 7.10.0, and switched to calling t
 binary directly instead of through `npx` to make sure it couldn't happen again. The database blip
 cleared on a retry.
 
+---
+
+## Task 15 — Staff deactivation, the auto-clear worry, and toast notifications
+
+### What I asked for
+
+Three things in one request, with an explicit instruction to explain the approach and wait for a
+go-ahead before writing any code. First, a full audit of everything built so far against industry
+standards and scalability. Second, an option in Team to remove a waiter or manager when they leave,
+that either an admin or a manager could use. Third, a real worry about the Task 14 auto-clear sweep:
+what happens to a customer who's still physically waiting when their order hits 45 minutes and gets
+cancelled anyway asked whether that could be handled better, or whether there's a better way, not
+told what to build. Also asked for a toast notification to the responsible waiter when their order
+gets auto-cancelled, explicitly ruling out WebSockets and naming `react-toastify` directly.
+
+I pushed back twice for more clarity before letting it start: once because the auto-clear explanation
+was too abstract to actually picture, and once to confirm toastify was purely a display library and
+polling was still going to be the mechanism underneath it — wanted to understand both before saying
+go.
+
+### What it came back with
+
+For the audit: a categorized list of what's solid (bcrypt+JWT-in-httpOnly-cookie, role re-checked
+from the database every request, real transactions where they matter, consistent indexing) against
+real gaps left deliberately unfixed for now (no rate limiting, no validation library, no request
+logging, the single-process alert sweep) plus one finding it flagged as relevant to the very next
+task: the auth cookie's `SameSite=Lax` setting assumes client and API end up on the same registrable
+domain, which matters once deployment actually happens.
+
+For deactivation: checked the schema before proposing anything and found a real delete isn't just a
+bad idea, it's impossible — every order a person's touched references them with no cascade rule, so
+the database itself would reject deleting anyone with real order history. Built as `isActive`
+instead, matching the exact pattern already used for Tables and MenuItems, reusing the existing
+authority rules, and adding two new guards (can't deactivate yourself, can't deactivate the last
+manager) explained by mirroring an identical existing guard on demoting the last manager.
+
+For the auto-clear worry, it agreed the concern was valid and proposed exactly what I'd been
+thinking — exempt any order that's ever been acknowledged but also named the honest trade-off
+before I had to ask: a single acknowledgment with no real follow-through means an order can sit
+open forever. It didn't try to solve that with more logic, pointing out the critical-tier escalation
+and the repeat-alert tag already keep a stuck order visible to a manager either way.
+
+For notifications: a small `Notification` table, written in the same transaction as the
+auto-cancellation, polled every 30 seconds on the same rhythm as the alerts badge, displayed with
+`react-toastify` as asked. Asked permission before installing the package and before running the
+migration, same as every other time.
+
+Verified all three for real: deactivated Bob and confirmed his existing session died immediately and
+a fresh login attempt got a clear "deactivated" message, confirmed he dropped out of the default
+user list and reappeared with `include_inactive=true`, reactivated him and confirmed he could log in
+again. Tested the last-manager guard with a temporary admin account created specifically for this
+(deleted afterward) since the real admin's credentials aren't available in this session. Backdated an
+acknowledged order and an unacknowledged one both past 45 minutes and ran the sweep directly only
+the unacknowledged one got cancelled, and a real notification was written and delivered through the
+unread-notifications endpoint for it.
+
+### What I had to catch or fix along the way
+
+Two real ones, both self-caught. First, a login request returned a bare 500 partway through
+verification turned out to be an already-running dev server process that hadn't picked up a
+schema change, not a code bug; found by spinning up a completely fresh instance on a different port
+to confirm the same code worked correctly there, then restarting the stale one. Second, and more
+serious: a debug server instance started earlier for that same diagnosis was never actually killed
+(a background-job cleanup attempt silently failed), and it sat there holding a database connection
+open until a later cleanup script tripped Supabase's pooler connection limit (`max clients reached in
+session mode`, capped at 15). Found the leaked process by port, killed it for real, and confirmed the
+connection error cleared immediately after a good reminder that a temporary server instance spun up
+for debugging needs the same cleanup discipline as any other test artifact.
+
 

@@ -317,7 +317,8 @@ export function OrdersPage() {
       {data && (
         <>
           <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            <table className="w-full text-left text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
                   {SORT_COLUMNS.map((column) => (
@@ -366,9 +367,10 @@ export function OrdersPage() {
                 )}
               </tbody>
             </table>
+            </div>
           </div>
 
-          <div className="mt-3 flex items-center justify-between text-sm text-slate-500">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500">
             <span>{total === 0 ? "No results" : `Showing ${from}–${to} of ${total}`}</span>
             <div className="flex items-center gap-2">
               <button

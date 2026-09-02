@@ -116,7 +116,8 @@ export function TeamPage() {
 
       {data && (
         <div className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-5 py-3 font-medium">Name</th>
@@ -205,12 +206,13 @@ export function TeamPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
       {justCreated && (
         <div className="mt-6 max-w-2xl rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-medium text-emerald-900">Account created — copy this now</h2>
             <button
               onClick={() => setJustCreated(null)}
@@ -290,7 +292,7 @@ export function TeamPage() {
             className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
         </div>
-        <div className="w-36">
+        <div className="w-full sm:w-36">
           <label className="block text-sm font-medium text-slate-700">Role</label>
           {isAdmin ? (
             <select

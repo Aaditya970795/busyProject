@@ -353,5 +353,71 @@ stored anywhere retrievable). Now it stays on screen in a dismissible card, expl
 one-time reveal, the same pattern AWS/GitHub use for access keys. If it still gets lost, resetting the
 password again is free and was already built — no separate recovery path was needed.
 
+---
+
+40. Replaced every `fetch` call on the client with axios, and didn't add a request interceptor for
+    the auth token
+
+The JWT lives in an httpOnly cookie, never in JavaScript-readable storage, and axios is already told
+`withCredentials: true` so the browser attaches that cookie to every request on its own. An
+interceptor exists to inject something the app itself is holding onto (e.g. a token in memory or
+`localStorage`); there's nothing here for one to inject.
+
+---
+
+41. The dashboard summary endpoint is manager-and-above only; a waiter gets a different view built
+    from an endpoint that already existed
+
+Open orders, today's revenue, and a per-waiter leaderboard all read as a management view, not
+something a waiter needs. Rather than send a waiter a cut-down version of the same payload, the
+waiter-facing dashboard is built entirely from `GET /orders/mine`, which Task 4 already exposed —
+no new endpoint needed for it.
+
+---
+
+42. Picked Recharts for the dashboard's charts
+
+Wanted a bar chart and a line chart that resize themselves to their container instead of a fixed
+pixel size, since the same dashboard needed to keep working once the responsive pass (Task 12)
+started resizing the cards around them. Recharts' `ResponsiveContainer` does exactly that, and it's
+a plain React component API instead of something that needs manual DOM/canvas wiring.
+
+---
+
+43. "Served today" and the 14-day trend are approximated from order status and `updatedAt`, not a
+    real event log
+
+There's no table recording *when* an order changed to each status, so "served today" means "status
+is currently `served` and it was last touched today." An order served yesterday that later gets
+archived and unarchived today would be miscounted a rare, acceptable gap for now, documented in
+the code as a known limitation rather than silently accepted.
+
+---
+
+44. The dashboard refreshes itself every 30 seconds instead of needing a manual reload
+
+A dashboard is read-mostly and only useful if the numbers on it are close to current. TanStack
+Query's `refetchInterval` handles this without hand-rolling a polling loop, and 30 seconds felt
+frequent enough to feel live without hammering the aggregate query on every render.
+
+---
+
+45. Mobile nav collapses behind a hamburger button below the `md` (768px) breakpoint, instead of a
+    bottom tab bar or an always-visible condensed nav
+
+Matches the one existing nav bar's structure most closely brand, links, user info, and logout all
+already lived in one row, so hiding that row behind a toggle below `md` and showing a stacked
+equivalent in a drawer needed no new navigation model, just a second rendering of the same links.
+
+---
+
+46. Tables scroll horizontally on narrow screens instead of collapsing into stacked cards
+
+A dedicated mobile card layout for every table (Menu, Orders, Order Detail, Team) would have meant a
+second, parallel markup structure per table to keep in sync with the desktop one forever after.
+Wrapping the existing `<table>` in a scrollable container with a `min-width` keeps exactly one markup
+structure per page — a phone user scrolls sideways to see every column, which is a normal, understood
+pattern, rather than the app inventing a different information layout just for small screens.
+
 
 

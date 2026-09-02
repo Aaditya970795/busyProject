@@ -369,4 +369,88 @@ rendered.
 Nothing — both parts went through clean, and it correctly declined to overbuild anything (no email
 sending, no token-based reset flow) beyond what the app's actual infrastructure could support.
 
+---
+
+## Axios migration (cross-cutting, not a numbered task)
+
+### What I asked for
+
+Separately from any single task, I asked it to go back through everything already built and replace
+every plain `fetch` call on the client with axios. I also asked directly whether it was using an axios
+interceptor to attach the JWT to outgoing requests.
+
+### What it came back with
+
+It swapped every API call over to a shared axios instance instead of scattered `fetch` calls, and
+answered the interceptor question straight: no interceptor, because there's nothing to inject — the
+JWT lives in an httpOnly cookie, and axios is already configured with `withCredentials: true`, so the
+browser attaches the cookie automatically on every request the way it always did before axios existed.
+
+### What I had to catch or fix along the way
+
+Nothing to fix — this was a pure refactor with no behavior change, and it confirmed that with real
+requests rather than just asserting the swap was safe.
+
+---
+
+## Task 11 — Dashboard
+
+### What I asked for
+
+A dashboard brief (numbered task 7 of 10 in the original wording, landing as Task 11 in this log for
+the same renumbering reason earlier tasks note): a manager-facing screen summarizing how the
+restaurant is doing headline counts, revenue, breakdowns, and a way to see what's trending, backed
+by real aggregate queries instead of the client fetching every order and computing numbers itself.
+
+### What it came back with
+
+One summary endpoint powering headline stat cards (open orders, placed/served today with a
+vs-yesterday delta, revenue with an average order value), an orders-by-status breakdown, an
+orders-by-waiter leaderboard, today's top sellers, a 14-day orders/revenue trend chart, and a recent
+orders feed each row a real link into that order's detail page. Gated the whole endpoint to manager
+and above, since none of it is information a waiter needs for their own job.
+
+Afterward I asked for the dashboard to be enhanced further and pointed out the gap directly: "for
+waiter dashboard show something there not just waiter can't see the dashboard we can show some other
+dashboard there." It built a genuinely different waiter-facing view instead of a locked-out page
+their own open-order count, what they placed/served today, and their open orders sorted oldest-first
+built entirely from the "my orders" endpoint Task 4 already exposed, no new backend surface needed
+for it.
+
+### What I had to catch or fix along the way
+
+Nothing to fix — verified live in the browser with real data (stat cards checked against the actual
+order set, the chart-metric toggle switching between orders and revenue, the waiter view showing a
+different waiter's own orders correctly) rather than just trusting the numbers looked plausible.
+
+---
+
+## Task 12 — Fully responsive UI pass
+
+### What I asked for
+
+"make the UI fully Responsive for all type of devices."
+
+### What it came back with
+
+An audit of every page first grep for every `<table>` and every fixed-width form field before
+touching anything — which turned up the nav bar as the single most broken thing on mobile (five links
+plus brand plus user info plus logout, all in one unwrapped row), fixed first since a broken nav makes
+every other page unreachable regardless of how responsive its own content is. Every table then got
+wrapped in its own horizontally-scrolling container, header rows and a handful of fixed-width form
+fields got `flex-wrap`/full-width treatment, and it verified the result in a real browser at phone and
+tablet widths rather than just trusting the Tailwind classes were correct on paper the window-resize
+tool wasn't actually shrinking the browser viewport in this environment, so it improvised by embedding
+the app in same-origin iframes sized to real device widths to get a genuine narrow-viewport render to
+screenshot.
+
+### What I had to catch or fix along the way
+
+Nothing I had to catch — but it caught something itself during that browser verification: the
+create-item form on the Menu page used a plain `flex` row with no wrap, so at phone width the item
+name field was getting squeezed down to just a few characters wide instead of the price field
+stacking underneath it like every other form on the page already did. Found by actually looking at the
+rendered mobile layout, not by reading the Tailwind classes, fixed the same way the other forms already
+worked, and re-verified after the fix.
+
 

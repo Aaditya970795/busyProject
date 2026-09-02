@@ -98,6 +98,14 @@ export function XIcon(props) {
   );
 }
 
+export function MenuIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" {...BASE} {...props}>
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    </svg>
+  );
+}
+
 export function TrashIcon(props) {
   return (
     <svg viewBox="0 0 24 24" width="16" height="16" {...BASE} {...props}>

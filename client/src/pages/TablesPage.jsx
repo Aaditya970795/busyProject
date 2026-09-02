@@ -49,7 +49,7 @@ export function TablesPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Tables</h1>
           <p className="mt-0.5 text-sm text-slate-500">

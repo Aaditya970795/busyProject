@@ -99,7 +99,7 @@ export function MenuPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Menu</h1>
           <p className="mt-0.5 text-sm text-slate-500">
@@ -124,7 +124,8 @@ export function MenuPage() {
 
       {data && (
         <div className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[480px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 {isManager && <th className="w-8 px-5 py-3"></th>}
@@ -210,6 +211,7 @@ export function MenuPage() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
@@ -221,7 +223,7 @@ export function MenuPage() {
           <span className="text-sm font-medium text-indigo-900">
             {selectedIds.size} item{selectedIds.size === 1 ? "" : "s"} selected
           </span>
-          <div className="w-32">
+          <div className="w-full sm:w-32">
             <label className="block text-sm font-medium text-slate-700">New price (₹)</label>
             <input
               type="number"
@@ -233,7 +235,7 @@ export function MenuPage() {
               className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
           </div>
-          <div className="w-40">
+          <div className="w-full sm:w-40">
             <label className="block text-sm font-medium text-slate-700">Availability</label>
             <select
               value={bulkAvailability}
@@ -265,7 +267,7 @@ export function MenuPage() {
 
       {bulkResults && (
         <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-medium text-slate-700">Bulk update results</h2>
             <button onClick={() => setBulkResults(null)} className="text-sm text-slate-400 hover:text-slate-600">
               Dismiss
@@ -297,9 +299,9 @@ export function MenuPage() {
       {isManager && (
         <form
           onSubmit={handleCreate}
-          className="mt-6 flex max-w-lg items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+          className="mt-6 flex max-w-lg flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
         >
-          <div className="flex-1">
+          <div className="min-w-[10rem] flex-1">
             <label className="block text-sm font-medium text-slate-700">Name</label>
             <input
               value={name}
@@ -309,7 +311,7 @@ export function MenuPage() {
               className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
           </div>
-          <div className="w-32">
+          <div className="w-full sm:w-32">
             <label className="block text-sm font-medium text-slate-700">Price (₹)</label>
             <input
               type="number"

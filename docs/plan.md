@@ -159,3 +159,41 @@ Why this came last: both of these questions only make sense once accounts are ac
 authority figure instead of self-registration "forgot password" and "I lost the password I just
 set for someone" aren't real problems until that model exists.
 
+### Task 11 — Dashboard
+
+A single manager-facing screen answering "how's the restaurant doing right now": headline numbers
+(open orders, orders placed today, orders served today with a vs-yesterday delta, revenue today with
+an average-order-value figure), a breakdown of open/closed orders by status, a leaderboard of orders
+by waiter, today's top-selling items by quantity and revenue, a 14-day trend chart togglable between
+orders-served and revenue, and a feed of the most recent orders each one linking straight into that
+order's detail page. The whole summary comes from one endpoint (`GET /api/dashboard/summary`),
+computed server-side rather than shipping every order to the browser and aggregating it there.
+
+A follow-up pass then asked for the dashboard to actually mean something for a waiter too, since the
+first version simply hid the whole page from anyone who wasn't a manager. Waiters now get a real,
+different view instead of a blank restriction message a worklist built from their own
+`GET /orders/mine` data: how many of their orders are still open, how many they placed and served
+today, and their open orders sorted oldest-first, since those are the ones that have been waiting
+longest.
+
+Why this came after the account-provisioning and password-reset work: a "how's the restaurant doing"
+view only makes sense once there's a stable set of roles to build different views for a manager
+sees restaurant-wide numbers, a waiter sees their own worklist and both needed the account model
+from Tasks 9 and 10 settled first.
+
+### Task 12 — Fully responsive UI pass
+
+Everything up to this point had only ever been built and checked at a normal desktop browser width.
+This task went through every page and fixed what breaks on a phone or tablet: the nav bar (brand +
+five links + user info + logout, all in one row) completely overflowed below desktop width, so it now
+collapses behind a hamburger button into a stacked mobile drawer below Tailwind's `md` breakpoint.
+Every data table (Menu, Orders, Order Detail, Team, the dashboard's status breakdown) now scrolls
+horizontally inside its own container on a narrow screen instead of squashing its columns or breaking
+the page layout, and header rows plus a handful of fixed-width form fields now wrap or stack to full
+width instead of overflowing or getting squeezed unreadably small.
+
+Why this came last, after every feature task: a responsive pass is the kind of thing that's worth
+doing once across a finished set of pages, not repeated after every individual feature lands
+retrofitting every page at once also meant one consistent pattern (the same horizontal-scroll-table
+treatment, the same header flex-wrap fix) instead of a different ad hoc fix per page.
+

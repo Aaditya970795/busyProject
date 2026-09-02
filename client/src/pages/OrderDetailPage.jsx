@@ -283,7 +283,8 @@ export function OrderDetailPage() {
       </div>
 
       <div className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-5 py-3 font-medium">Item</th>
@@ -367,6 +368,7 @@ export function OrderDetailPage() {
             )}
           </tbody>
         </table>
+        </div>
         <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-5 py-3">
           <span className="text-sm font-medium text-slate-500">Total</span>
           <span className="text-lg font-semibold text-slate-900">{formatCurrency(total)}</span>

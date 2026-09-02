@@ -6,6 +6,7 @@ import menuItemRoutes from "./routes/menuItem.routes.js";
 import orderRoutes from "./routes/order.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import tableRoutes from "./routes/table.routes.js";
+import dashboardRoutes from "./routes/dashboard.routes.js";
 
 const app = express();
 
@@ -18,6 +19,7 @@ app.use("/api/menu-items", menuItemRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/tables", tableRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: "Not found" });

@@ -26,6 +26,29 @@ const NEXT_STATUS_LABEL = {
 const CANCELLABLE_STATUSES = new Set(["placed", "accepted"]);
 const OPEN_STATUSES = new Set(["placed", "accepted", "preparing", "ready"]);
 
+function capitalize(word) {
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+// Turns one OrderEvent row into the plain-English sentence the timeline renders. Kept next to
+// the page instead of shared with the server, same as the NEXT_STATUS map above — a UI-only
+// concern, not a rule the server needs to agree on.
+function describeEvent(event) {
+  const actorName = event.actor.name;
+  switch (event.eventType) {
+    case "status_change":
+      return `${actorName} changed status from ${capitalize(event.oldValue)} to ${capitalize(event.newValue)}`;
+    case "line_added":
+      return `${actorName} added ${event.newValue}`;
+    case "line_voided":
+      return `${actorName} voided '${event.newValue}' — reason: ${event.note}`;
+    case "note":
+      return `${actorName} left a note: "${event.note}"`;
+    default:
+      return `${actorName} recorded an event`;
+  }
+}
+
 export function OrderDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -42,6 +65,11 @@ export function OrderDetailPage() {
     queryFn: () => api.get("/menu-items"),
   });
 
+  const { data: timelineData } = useQuery({
+    queryKey: ["order", id, "timeline"],
+    queryFn: () => api.get(`/orders/${id}/timeline`),
+  });
+
   const [menuItemId, setMenuItemId] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [instructions, setInstructions] = useState("");
@@ -50,8 +78,10 @@ export function OrderDetailPage() {
   const [voidingLineId, setVoidingLineId] = useState(null);
   const [voidReason, setVoidReason] = useState("");
   const [collaboratorId, setCollaboratorId] = useState("");
+  const [noteText, setNoteText] = useState("");
 
   const invalidateOrder = () => queryClient.invalidateQueries({ queryKey: ["order", id] });
+  const invalidateTimeline = () => queryClient.invalidateQueries({ queryKey: ["order", id, "timeline"] });
 
   const order = data?.order;
   const canManageCollaborators = Boolean(
@@ -82,6 +112,7 @@ export function OrderDetailPage() {
     mutationFn: (payload) => api.post(`/orders/${id}/lines`, payload),
     onSuccess: () => {
       invalidateOrder();
+      invalidateTimeline();
       setQuantity("1");
       setInstructions("");
     },
@@ -91,6 +122,7 @@ export function OrderDetailPage() {
     mutationFn: (status) => api.patch(`/orders/${id}/status`, { status }),
     onSuccess: () => {
       invalidateOrder();
+      invalidateTimeline();
       // Reaching a terminal status (served/cancelled) frees up the table for new orders.
       queryClient.invalidateQueries({ queryKey: ["tables"] });
       setConfirmingCancel(false);
@@ -101,8 +133,17 @@ export function OrderDetailPage() {
     mutationFn: ({ lineId, reason }) => api.post(`/orders/${id}/lines/${lineId}/void`, { reason }),
     onSuccess: () => {
       invalidateOrder();
+      invalidateTimeline();
       setVoidingLineId(null);
       setVoidReason("");
+    },
+  });
+
+  const addNoteMutation = useMutation({
+    mutationFn: (note) => api.post(`/orders/${id}/notes`, { note }),
+    onSuccess: () => {
+      invalidateTimeline();
+      setNoteText("");
     },
   });
 
@@ -130,6 +171,12 @@ export function OrderDetailPage() {
     e.preventDefault();
     if (!voidReason.trim()) return;
     voidMutation.mutate({ lineId: voidingLineId, reason: voidReason.trim() });
+  }
+
+  function handleAddNote(e) {
+    e.preventDefault();
+    if (!noteText.trim()) return;
+    addNoteMutation.mutate(noteText.trim());
   }
 
   if (isLoading) return <p className="text-sm text-slate-500">Loading…</p>;
@@ -438,6 +485,43 @@ export function OrderDetailPage() {
       {addLineMutation.error && (
         <p className="mt-2 text-sm text-red-600">{addLineMutation.error.message}</p>
       )}
+
+      <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 className="text-sm font-medium text-slate-700">Timeline</h2>
+        <div className="mt-2 divide-y divide-slate-100">
+          {timelineData?.events.map((event) => (
+            <div key={event.id} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 py-2">
+              <p className="text-sm text-slate-700">{describeEvent(event)}</p>
+              <span className="text-xs text-slate-400">{new Date(event.createdAt).toLocaleString()}</span>
+            </div>
+          ))}
+          {timelineData && timelineData.events.length === 0 && (
+            <p className="py-4 text-center text-sm text-slate-400">No activity recorded yet.</p>
+          )}
+        </div>
+
+        <form onSubmit={handleAddNote} className="mt-3 flex flex-wrap items-end gap-2">
+          <div className="min-w-[12rem] flex-1">
+            <label className="block text-sm font-medium text-slate-700">Add a note</label>
+            <input
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              placeholder="e.g. Guest asked for less spice"
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={!noteText.trim() || addNoteMutation.isPending}
+            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {addNoteMutation.isPending ? "Adding…" : "Add note"}
+          </button>
+        </form>
+        {addNoteMutation.error && (
+          <p className="mt-2 text-sm text-red-600">{addNoteMutation.error.message}</p>
+        )}
+      </div>
     </div>
   );
 }

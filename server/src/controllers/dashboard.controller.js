@@ -21,24 +21,31 @@ export async function getSummary(req, res) {
   const todayStart = startOfUtcDay(new Date());
   const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
-  const [openOrders, placedToday, servedTodayOrders, byStatusRaw, byWaiterRaw] = await Promise.all([
+  const [openOrders, placedToday, servedTodayEvents, byStatusRaw, byWaiterRaw] = await Promise.all([
     prisma.order.count({ where: { isArchived: false, status: { in: [...OPEN_STATUSES] } } }),
     prisma.order.count({ where: { isArchived: false, createdAt: { gte: todayStart, lt: todayEnd } } }),
-    // Known limitation: there's no status-change-events table yet (that's later timeline work,
-    // not built), so "served today" is approximated as "currently served, and last updated
-    // today." updatedAt also moves on archive/unarchive, so an order served yesterday that gets
-    // archived-then-unarchived today would be miscounted as served today — an acceptable, rare
-    // edge case for now, but worth fixing for real once a proper event log exists.
-    prisma.order.findMany({
-      where: { isArchived: false, status: "served", updatedAt: { gte: todayStart, lt: todayEnd } },
-      include: { lines: { include: { menuItem: { select: { name: true } } } } },
+    // "Served today" now comes from the OrderEvent audit trail added for the timeline feature,
+    // instead of approximating it from `orders.updatedAt` (which also moves on archive/unarchive
+    // and could miscount a day-old order as served today). `served` is a terminal status — an
+    // order can only ever get one status_change event with `newValue: "served"` — so this is
+    // exactly "when did this order actually become served," not an approximation.
+    prisma.orderEvent.findMany({
+      where: {
+        eventType: "status_change",
+        newValue: "served",
+        createdAt: { gte: todayStart, lt: todayEnd },
+        order: { isArchived: false },
+      },
+      include: { order: { include: { lines: { include: { menuItem: { select: { name: true } } } } } } },
     }),
     prisma.order.groupBy({ by: ["status"], where: { isArchived: false }, _count: true }),
     prisma.order.groupBy({ by: ["primaryWaiterId"], where: { isArchived: false }, _count: true }),
   ]);
 
-  const servedToday = servedTodayOrders.length;
-  const activeLinesToday = servedTodayOrders.flatMap((order) => order.lines).filter((line) => line.status === "active");
+  const servedToday = servedTodayEvents.length;
+  const activeLinesToday = servedTodayEvents
+    .flatMap((event) => event.order.lines)
+    .filter((line) => line.status === "active");
   // Same exact-math pattern as computeTotal() in order.controller.js, scoped to today's served
   // orders' active lines only, instead of fetching every order to sum in JS.
   const revenueTodayDecimal = activeLinesToday.reduce(
@@ -86,13 +93,23 @@ export async function getSummary(req, res) {
   // servedPerDay: one query for the whole window, bucketed by day in JS, rather than either raw
   // SQL with date_trunc or 14 separate count() round trips — this data is small enough (at most
   // a few weeks of served orders) that fetching once and grouping in JS is the simplest correct
-  // option, and it keeps this endpoint free of raw SQL entirely.
+  // option, and it keeps this endpoint free of raw SQL entirely. Bucketed by the status_change
+  // event's own `createdAt` — the moment the order actually became served — not `orders.updatedAt`,
+  // for the same reason as `servedToday` above.
   const windowStart = new Date(todayStart);
   windowStart.setUTCDate(windowStart.getUTCDate() - (SERVED_PER_DAY_WINDOW - 1));
 
-  const recentServed = await prisma.order.findMany({
-    where: { isArchived: false, status: "served", updatedAt: { gte: windowStart, lt: todayEnd } },
-    select: { updatedAt: true, lines: { where: { status: "active" }, select: { unitPrice: true, quantity: true } } },
+  const recentServedEvents = await prisma.orderEvent.findMany({
+    where: {
+      eventType: "status_change",
+      newValue: "served",
+      createdAt: { gte: windowStart, lt: todayEnd },
+      order: { isArchived: false },
+    },
+    select: {
+      createdAt: true,
+      order: { select: { lines: { where: { status: "active" }, select: { unitPrice: true, quantity: true } } } },
+    },
   });
 
   const servedPerDay = [];
@@ -104,11 +121,11 @@ export async function getSummary(req, res) {
     bucketByDate.set(bucket.date, bucket);
     servedPerDay.push(bucket);
   }
-  for (const order of recentServed) {
-    const bucket = bucketByDate.get(order.updatedAt.toISOString().slice(0, 10));
+  for (const event of recentServedEvents) {
+    const bucket = bucketByDate.get(event.createdAt.toISOString().slice(0, 10));
     if (!bucket) continue;
     bucket.count += 1;
-    bucket.revenue = bucket.revenue.plus(sumLines(order.lines));
+    bucket.revenue = bucket.revenue.plus(sumLines(event.order.lines));
   }
   for (const bucket of servedPerDay) {
     bucket.revenue = bucket.revenue.toFixed(2);

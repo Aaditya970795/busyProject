@@ -30,6 +30,13 @@ enum LineStatus {
   void
 }
 
+enum EventType {
+  status_change
+  line_added
+  line_voided
+  note
+}
+
 model User {
   id           String   @id @default(uuid())
   name         String
@@ -40,6 +47,7 @@ model User {
 
   orders        Order[]
   collaborating OrderCollaborator[]
+  orderEvents   OrderEvent[]
 }
 
 model Table {
@@ -73,6 +81,7 @@ model Order {
 
   lines         OrderLine[]
   collaborators OrderCollaborator[]
+  events        OrderEvent[]
 
   @@index([status])
   @@index([createdAt])
@@ -105,4 +114,22 @@ model OrderCollaborator {
 
   @@id([orderId, waiterId])
   @@index([waiterId])
+}
+
+// The audit trail for an order: one row per status change, line added, line voided, or note.
+// Written alongside the mutation it records, in the same `$transaction`, and never updated or
+// deleted afterward by any code path — see the controller for that hard rule.
+model OrderEvent {
+  id        String    @id @default(uuid())
+  orderId   String
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  eventType EventType
+  oldValue  String?
+  newValue  String?
+  actorId   String
+  actor     User      @relation(fields: [actorId], references: [id])
+  note      String?
+  createdAt DateTime  @default(now())
+
+  @@index([orderId])
 }

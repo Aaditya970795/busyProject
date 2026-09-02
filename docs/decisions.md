@@ -419,5 +419,65 @@ Wrapping the existing `<table>` in a scrollable container with a `min-width` kee
 structure per page — a phone user scrolls sideways to see every column, which is a normal, understood
 pattern, rather than the app inventing a different information layout just for small screens.
 
+---
+
+47. Every audit-trail write happens inside the same `$transaction` as the change it records
+
+A status update, a line being added, and a line being voided each now write an `OrderEvent` row in
+the same transaction as the mutation itself, rather than as a follow-up statement after. The two
+either both commit or both roll back — there's no window where the order changed but the event log
+doesn't know it, or vice versa.
+
+---
+
+48. `OrderEvent` rows can only ever be created — no code path updates or deletes one, ever
+
+Enforced by convention, not a database trigger: every write to this table goes through one helper
+(`logEvent`), and nothing in the app calls `.update`/`.delete`/`.deleteMany` on it, including for a
+manager acting on someone else's order. An audit trail that can be edited or removed after the fact
+isn't an audit trail — the whole point is that it's the one thing in the app nobody can quietly
+rewrite.
+
+---
+
+49. A "line added" event describes what was actually added, not the line's new total
+
+Adding "1x Garlic Bread" to an order that already has "2x Garlic Bread" on it merges into a single
+line with quantity 3 (an existing rule from Task 2). The event logged for that action says "Garlic
+Bread x1" — what this specific action added — not "Garlic Bread x3," which would make the timeline
+read as if 3 were added twice. The order's current line quantities are always visible on the order
+itself; the timeline's job is to say what happened at each step, not repeat the running total.
+
+---
+
+50. The order's first line (created together with the order itself in Task 2) also gets a
+    `line_added` event
+
+The brief's wording focused on the existing `POST /orders/:id/lines` route, but an order's very
+first item is still a line being added, just inside `createOrder` instead of a separate request. Not
+logging it would leave a real gap at the very start of every order's timeline — the first thing that
+happened to it missing from its own history.
+
+---
+
+51. The new note endpoint writes its `OrderEvent` row directly, not through the transactional
+    mutation paths above
+
+Adding a note isn't paired with any other write the way a status change or a line edit is — it's
+already a single, standalone statement, so wrapping it in `$transaction` would add nothing. It still
+goes through a plain `prisma.orderEvent.create` (never `.update`/`.delete`, same hard rule as
+everywhere else), just without a transaction wrapper it doesn't need.
+
+---
+
+52. Dashboard's `servedToday` and `servedPerDay` now read off the order's status-changed-to-served
+    event, not `orders.updatedAt`
+
+This was a documented approximation from Task 11, kept until there was a real event log to read
+from instead. `served` is a terminal status, so an order can only ever get exactly one status-change
+event with `newValue: "served"` — using that event's own timestamp is the actual moment the order
+became served, not a guess, and it's no longer thrown off by an order being archived and unarchived
+later (which used to bump `updatedAt` and could miscount a day-old order as served today).
+
 
 

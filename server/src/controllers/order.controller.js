@@ -4,6 +4,7 @@ import { OPEN_STATUSES } from "../lib/orderStatus.js";
 import { Prisma } from "../../generated/prisma/client.ts";
 import { toCsv } from "../lib/csv.js";
 import { atLeast } from "../lib/roles.js";
+import { logEvent } from "../lib/orderEvents.js";
 
 const WAITER_PUBLIC_SELECT = { id: true, name: true, email: true, role: true };
 const SORT_FIELDS = { placed: "createdAt", status: "status", table: "tableNumber" };
@@ -115,7 +116,7 @@ export async function createOrder(req, res) {
 
         // The order and its first line are created together in one nested write so the two
         // can never land as separate statements — either both exist or neither does.
-        return tx.order.create({
+        const created = await tx.order.create({
           data: {
             tableNumber: table_number,
             primaryWaiterId: req.user.id,
@@ -132,6 +133,15 @@ export async function createOrder(req, res) {
           },
           include: { lines: { include: { menuItem: true } } },
         });
+
+        await logEvent(tx, {
+          orderId: created.id,
+          eventType: "line_added",
+          newValue: `${menuItem.name} x${quantity}`,
+          actorId: req.user.id,
+        });
+
+        return created;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
     );
@@ -421,7 +431,18 @@ export async function updateStatus(req, res) {
     return res.status(400).json({ error: rejectionReason });
   }
 
-  const updated = await prisma.order.update({ where: { id }, data: { status } });
+  const updated = await prisma.$transaction(async (tx) => {
+    const updatedOrder = await tx.order.update({ where: { id }, data: { status } });
+    await logEvent(tx, {
+      orderId: id,
+      eventType: "status_change",
+      oldValue: order.status,
+      newValue: status,
+      actorId: req.user.id,
+    });
+    return updatedOrder;
+  });
+
   return res.json({ order: updated });
 }
 
@@ -479,27 +500,50 @@ export async function addLine(req, res) {
     },
   });
 
+  // The event logged below describes what was actually added by this call (the incremental
+  // quantity), not the line's resulting total — that's what "added" means in an audit trail,
+  // whether it lands as a brand new line or bumps an existing one.
+  const addedDescription = `${menuItem.name} x${quantity}`;
+
   if (existingLine) {
-    const orderLine = await prisma.orderLine.update({
-      where: { id: existingLine.id },
-      data: {
-        quantity: existingLine.quantity + quantity,
-        specialInstructions: mergeInstructions(existingLine.specialInstructions, trimmedInstructions),
-      },
-      include: { menuItem: true },
+    const orderLine = await prisma.$transaction(async (tx) => {
+      const updated = await tx.orderLine.update({
+        where: { id: existingLine.id },
+        data: {
+          quantity: existingLine.quantity + quantity,
+          specialInstructions: mergeInstructions(existingLine.specialInstructions, trimmedInstructions),
+        },
+        include: { menuItem: true },
+      });
+      await logEvent(tx, {
+        orderId: id,
+        eventType: "line_added",
+        newValue: addedDescription,
+        actorId: req.user.id,
+      });
+      return updated;
     });
     return res.status(200).json({ orderLine });
   }
 
-  const orderLine = await prisma.orderLine.create({
-    data: {
+  const orderLine = await prisma.$transaction(async (tx) => {
+    const created = await tx.orderLine.create({
+      data: {
+        orderId: id,
+        menuItemId: menu_item_id,
+        quantity,
+        specialInstructions: trimmedInstructions,
+        unitPrice: menuItem.price,
+      },
+      include: { menuItem: true },
+    });
+    await logEvent(tx, {
       orderId: id,
-      menuItemId: menu_item_id,
-      quantity,
-      specialInstructions: trimmedInstructions,
-      unitPrice: menuItem.price,
-    },
-    include: { menuItem: true },
+      eventType: "line_added",
+      newValue: addedDescription,
+      actorId: req.user.id,
+    });
+    return created;
   });
 
   return res.status(201).json({ orderLine });
@@ -534,10 +578,20 @@ export async function voidLine(req, res) {
     return res.status(400).json({ error: "This line has already been voided." });
   }
 
-  const orderLine = await prisma.orderLine.update({
-    where: { id: lineId },
-    data: { status: "void", voidReason: reason.trim() },
-    include: { menuItem: true },
+  const orderLine = await prisma.$transaction(async (tx) => {
+    const updated = await tx.orderLine.update({
+      where: { id: lineId },
+      data: { status: "void", voidReason: reason.trim() },
+      include: { menuItem: true },
+    });
+    await logEvent(tx, {
+      orderId: id,
+      eventType: "line_voided",
+      newValue: `${updated.menuItem.name} x${updated.quantity}`,
+      note: reason.trim(),
+      actorId: req.user.id,
+    });
+    return updated;
   });
 
   return res.json({ orderLine });
@@ -564,6 +618,55 @@ export function archiveOrder(req, res) {
 
 export function unarchiveOrder(req, res) {
   return setArchived(req, res, false);
+}
+
+export async function addNote(req, res) {
+  const { id } = req.params;
+  const { note } = req.body ?? {};
+
+  if (typeof note !== "string" || !note.trim()) {
+    return res.status(400).json({ error: "note is required" });
+  }
+
+  const order = await prisma.order.findUnique({ where: { id } });
+  if (!order) {
+    return res.status(404).json({ error: "Order not found" });
+  }
+  if (!(await canActOnOrder(req.user, order))) {
+    return res.status(403).json({ error: "You do not have access to this order" });
+  }
+
+  // A standalone write, not paired with any other mutation, so this creates the row directly
+  // instead of going through logEvent — same underlying rule (create-only, never update/delete),
+  // just with the `include` this route also needs to hand the actor's name straight back.
+  const event = await prisma.orderEvent.create({
+    data: { orderId: id, eventType: "note", note: note.trim(), actorId: req.user.id },
+    include: { actor: { select: { id: true, name: true } } },
+  });
+
+  return res.status(201).json({ event });
+}
+
+// All events for an order, oldest first — the same access check as viewing the order itself,
+// since the timeline is part of the order's detail view, not a separate permission tier.
+export async function getTimeline(req, res) {
+  const { id } = req.params;
+
+  const order = await prisma.order.findUnique({ where: { id } });
+  if (!order) {
+    return res.status(404).json({ error: "Order not found" });
+  }
+  if (!(await canActOnOrder(req.user, order))) {
+    return res.status(403).json({ error: "You do not have access to this order" });
+  }
+
+  const events = await prisma.orderEvent.findMany({
+    where: { orderId: id },
+    include: { actor: { select: { id: true, name: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return res.json({ events });
 }
 
 export async function deleteOrder(req, res) {

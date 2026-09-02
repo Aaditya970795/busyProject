@@ -197,3 +197,28 @@ doing once across a finished set of pages, not repeated after every individual f
 retrofitting every page at once also meant one consistent pattern (the same horizontal-scroll-table
 treatment, the same header flex-wrap fix) instead of a different ad hoc fix per page.
 
+### Task 13 — Order audit timeline
+
+A brief numbered "task 8 of 10" (landing as Task 13 in this log, same renumbering situation Tasks
+6 and 7 already noted). Every order now keeps a permanent, append-only history of everything that
+happened to it: every status change (old status, new status, who did it), every line added or
+voided (with the void reason), and any free-text note a manager or waiter leaves on it. A new
+`OrderEvent` row is written in the same database transaction as the change it records a status
+update, a line being added, a line being voided so the mutation and its audit entry can never
+land as two separate statements that drift apart if one succeeds and the other doesn't. Nothing in
+the app is ever allowed to update or delete one of these rows once written, including for a manager
+an audit trail that can be edited after the fact isn't an audit trail. The order-detail page shows
+this as a plain-English activity feed ("Jane changed status from Placed to Accepted", "Raj voided
+'Grilled Salmon'reason: out of stock"), with a small form to add a note.
+
+This also gave the dashboard (Task 11) a real fix for something it had been approximating since it
+was built: "served today" and the 14-day served/revenue trend used to be guessed from an order's
+`updatedAt` timestamp, which isn't actually "the moment it became served" and could be thrown off by
+archiving and unarchiving an order. Both now read the real timestamp off the order's own
+status-changed-to-served event instead.
+
+Why this came after every earlier feature task: an audit trail only has something to record once
+there are actual status changes, line edits, and voids happening — Tasks 2 through 10 built all of
+the mutations this task now logs. It came before any alerting work (explicitly out of scope for this
+task) since alerts would need to react to these same events, which had to exist first.
+

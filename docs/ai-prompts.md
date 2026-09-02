@@ -453,4 +453,44 @@ stacking underneath it like every other form on the page already did. Found by a
 rendered mobile layout, not by reading the Tailwind classes, fixed the same way the other forms already
 worked, and re-verified after the fix.
 
+---
+
+## Task 13 — Order audit timeline
+
+### What I asked for
+
+A detailed brief (numbered "task 8 of 10," landing as Task 13 here for the same renumbering reason
+Tasks 6 and 7 already noted) for a permanent, append-only history on every order: every status
+change with who made it, every line added or voided with its reason, and any free-text notes —
+explicitly forbidding any code path from ever updating or deleting one of these rows, including for
+a manager. I gave the exact `OrderEvent` shape I wanted, told it to wire the logging into the
+existing status/line-add/line-void routes using `$transaction` so the mutation and its audit entry
+commit together, asked for a notes endpoint and a timeline endpoint, a frontend activity feed, and —
+since the dashboard from Task 11 had a documented approximation for "served today" — told it to go
+back and switch that to the new event log as part of this same task, and tell me explicitly that it
+did. No alerts yet, and to ask before running the migration.
+
+Partway through, I checked in on progress ("have you completed audit timeline?? if not then do
+it") after it had only gotten as far as the schema, the migration, and the logging helper — it
+answered honestly that it wasn't done yet and kept going rather than claiming otherwise.
+
+### What it came back with
+
+Added the `OrderEvent` model and `EventType` enum, asked before running the migration, then wired
+event-logging into `createOrder`, `addLine`, `voidLine`, and `updateStatus` — each writing its audit
+row in the same transaction as the change itself. Added the notes and timeline endpoints, a
+timeline feed on the order-detail page with a note form, and switched the dashboard's `servedToday`
+and `servedPerDay` over to the new event log as asked, explaining why that actually fixes the old
+approximation (an order can only ever become "served" once, so that event's own timestamp is the
+real moment, not a guess). Proved the whole thing with one real order: created it, added a line,
+voided a line, walked it through every status to served, left a note, then pulled the timeline and
+showed all eight events in the right order with the right actor and detail — and pulled the dashboard
+summary afterward to show `servedToday` and the day's revenue matched exactly what that one order
+actually served, with the voided line correctly excluded.
+
+### What I had to catch or fix along the way
+
+Nothing to fix — a mid-task status check, answered honestly rather than assumed finished, and the
+rest went through clean.
+
 

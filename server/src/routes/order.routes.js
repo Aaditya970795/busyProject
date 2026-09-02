@@ -9,6 +9,8 @@ import {
   addLine,
   voidLine,
   addCollaborator,
+  addNote,
+  getTimeline,
   archiveOrder,
   unarchiveOrder,
   deleteOrder,
@@ -27,6 +29,8 @@ router.patch("/:id/status", requireAuth, updateStatus);
 router.post("/:id/lines", requireAuth, addLine);
 router.post("/:id/lines/:lineId/void", requireAuth, voidLine);
 router.post("/:id/collaborators", requireAuth, addCollaborator);
+router.post("/:id/notes", requireAuth, addNote);
+router.get("/:id/timeline", requireAuth, getTimeline);
 router.post("/:id/archive", requireAuth, archiveOrder);
 router.post("/:id/unarchive", requireAuth, unarchiveOrder);
 router.delete("/:id", requireAuth, deleteOrder);

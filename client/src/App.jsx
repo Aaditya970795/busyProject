@@ -6,6 +6,7 @@ import { TablesPage } from "./pages/TablesPage";
 import { TeamPage } from "./pages/TeamPage";
 import { OrdersPage } from "./pages/OrdersPage";
 import { OrderDetailPage } from "./pages/OrderDetailPage";
+import { AlertsPage } from "./pages/AlertsPage";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { PublicOnlyRoute } from "./components/PublicOnlyRoute";
 import { AppShell } from "./components/AppShell";
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="/team" element={<TeamPage />} />
           <Route path="/orders" element={<OrdersPage />} />
           <Route path="/orders/:id" element={<OrderDetailPage />} />
+          <Route path="/alerts" element={<AlertsPage />} />
         </Route>
       </Route>
 

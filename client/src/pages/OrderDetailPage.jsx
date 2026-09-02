@@ -6,11 +6,9 @@ import { useAuth } from "../context/AuthContext";
 import { isManagerOrAbove } from "../lib/roles";
 import { StatusBadge } from "../components/StatusBadge";
 import { formatCurrency } from "../lib/format";
+import { CANCELLABLE_STATUSES, OPEN_STATUSES } from "../lib/orderStatus";
 import { ArrowLeftIcon, PlusIcon, TrashIcon, UserPlusIcon } from "../components/icons";
 
-// Mirrors the server's transition table (server/src/controllers/order.controller.js) just
-// closely enough to decide which controls to show. This is a UI convenience only — the
-// server re-validates every transition itself and is the real source of truth.
 const NEXT_STATUS = {
   placed: "accepted",
   accepted: "preparing",
@@ -23,8 +21,6 @@ const NEXT_STATUS_LABEL = {
   ready: "Mark ready",
   served: "Mark served",
 };
-const CANCELLABLE_STATUSES = new Set(["placed", "accepted"]);
-const OPEN_STATUSES = new Set(["placed", "accepted", "preparing", "ready"]);
 
 function capitalize(word) {
   return word.charAt(0).toUpperCase() + word.slice(1);
@@ -34,6 +30,15 @@ function capitalize(word) {
 // the page instead of shared with the server, same as the NEXT_STATUS map above — a UI-only
 // concern, not a rule the server needs to agree on.
 function describeEvent(event) {
+  // A null actor means the system did this, not a person — currently only the auto-clear sweep
+  // (lib/autoClearSweep.js on the server) cancelling an order nobody acted on in time.
+  if (!event.actor) {
+    if (event.eventType === "status_change" && event.newValue === "cancelled") {
+      return `Automatically cancelled — ${event.note}`;
+    }
+    return "System event";
+  }
+
   const actorName = event.actor.name;
   switch (event.eventType) {
     case "status_change":
@@ -268,6 +273,13 @@ export function OrderDetailPage() {
           )}
         </div>
       </div>
+      {order.alertAcknowledgedAt && order.alertAcknowledgedBy && (
+        <p className="mt-1 text-xs text-slate-400">
+          Slow-order alert last acknowledged by {order.alertAcknowledgedBy.name},{" "}
+          {new Date(order.alertAcknowledgedAt).toLocaleString()}
+          {OPEN_STATUSES.has(order.status) && order.status !== "ready" && " — still not Ready"}
+        </p>
+      )}
       {statusMutation.error && (
         <p className="mt-2 text-right text-sm text-red-600">{statusMutation.error.message}</p>
       )}

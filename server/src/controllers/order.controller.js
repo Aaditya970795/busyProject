@@ -354,6 +354,7 @@ export async function getOrder(req, res) {
     include: {
       lines: { include: { menuItem: true }, orderBy: { createdAt: "asc" } },
       collaborators: { include: { waiter: { select: WAITER_PUBLIC_SELECT } }, orderBy: { addedAt: "asc" } },
+      alertAcknowledgedBy: { select: { id: true, name: true } },
     },
   });
 
@@ -667,6 +668,28 @@ export async function getTimeline(req, res) {
   });
 
   return res.json({ events });
+}
+
+// Clears the order's alert until it's either reached Ready or ALERT_REAPPEAR_MINUTES has passed
+// again (see lib/orderAlerts.js) — same authorization as every other order mutation, not tied to
+// whether the order is actually alerting right now. Deliberately not logged to the OrderEvent
+// timeline: see docs/decisions.md for the reasoning.
+export async function acknowledgeAlert(req, res) {
+  const { id } = req.params;
+
+  const order = await prisma.order.findUnique({ where: { id } });
+  if (!order) {
+    return res.status(404).json({ error: "Order not found" });
+  }
+  if (!(await canActOnOrder(req.user, order))) {
+    return res.status(403).json({ error: "You do not have access to this order" });
+  }
+
+  const updated = await prisma.order.update({
+    where: { id },
+    data: { alertAcknowledgedAt: new Date(), alertAcknowledgedById: req.user.id },
+  });
+  return res.json({ order: updated });
 }
 
 export async function deleteOrder(req, res) {

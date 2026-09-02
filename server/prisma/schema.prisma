@@ -45,9 +45,10 @@ model User {
   role         Role
   createdAt    DateTime @default(now())
 
-  orders        Order[]
-  collaborating OrderCollaborator[]
-  orderEvents   OrderEvent[]
+  orders                Order[]
+  collaborating         OrderCollaborator[]
+  orderEvents           OrderEvent[]
+  alertAcknowledgements Order[]             @relation("OrderAlertAcknowledgedBy")
 }
 
 model Table {
@@ -70,14 +71,17 @@ model MenuItem {
 }
 
 model Order {
-  id              String      @id @default(uuid())
-  tableNumber     Int
-  status          OrderStatus @default(placed)
-  primaryWaiterId String
-  primaryWaiter   User        @relation(fields: [primaryWaiterId], references: [id])
-  isArchived      Boolean     @default(false)
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  id                    String      @id @default(uuid())
+  tableNumber           Int
+  status                OrderStatus @default(placed)
+  primaryWaiterId       String
+  primaryWaiter         User        @relation(fields: [primaryWaiterId], references: [id])
+  isArchived            Boolean     @default(false)
+  alertAcknowledgedAt   DateTime?
+  alertAcknowledgedById String?
+  alertAcknowledgedBy   User?       @relation("OrderAlertAcknowledgedBy", fields: [alertAcknowledgedById], references: [id])
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
 
   lines         OrderLine[]
   collaborators OrderCollaborator[]
@@ -126,8 +130,10 @@ model OrderEvent {
   eventType EventType
   oldValue  String?
   newValue  String?
-  actorId   String
-  actor     User      @relation(fields: [actorId], references: [id])
+  // Null means the system did this, not a person — the only case today is the auto-clear sweep
+  // cancelling a stuck order with nobody behind it.
+  actorId   String?
+  actor     User?     @relation(fields: [actorId], references: [id])
   note      String?
   createdAt DateTime  @default(now())
 

@@ -106,6 +106,15 @@ export function MenuIcon(props) {
   );
 }
 
+export function BellIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" {...BASE} {...props}>
+      <path d="M6 8a6 6 0 1 1 12 0c0 4 1.5 5.5 1.5 5.5H4.5S6 12 6 8Z" />
+      <path d="M9.5 17a2.5 2.5 0 0 0 5 0" />
+    </svg>
+  );
+}
+
 export function TrashIcon(props) {
   return (
     <svg viewBox="0 0 24 24" width="16" height="16" {...BASE} {...props}>

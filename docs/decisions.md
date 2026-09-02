@@ -389,7 +389,7 @@ a plain React component API instead of something that needs manual DOM/canvas wi
 
 There's no table recording *when* an order changed to each status, so "served today" means "status
 is currently `served` and it was last touched today." An order served yesterday that later gets
-archived and unarchived today would be miscounted a rare, acceptable gap for now, documented in
+archived and unarchived today would be miscounted — a rare, acceptable gap for now, documented in
 the code as a known limitation rather than silently accepted.
 
 ---
@@ -405,7 +405,7 @@ frequent enough to feel live without hammering the aggregate query on every rend
 45. Mobile nav collapses behind a hamburger button below the `md` (768px) breakpoint, instead of a
     bottom tab bar or an always-visible condensed nav
 
-Matches the one existing nav bar's structure most closely brand, links, user info, and logout all
+Matches the one existing nav bar's structure most closely — brand, links, user info, and logout all
 already lived in one row, so hiding that row behind a toggle below `md` and showing a stacked
 equivalent in a drawer needed no new navigation model, just a second rendering of the same links.
 
@@ -478,6 +478,158 @@ from instead. `served` is a terminal status, so an order can only ever get exact
 event with `newValue: "served"` — using that event's own timestamp is the actual moment the order
 became served, not a guess, and it's no longer thrown off by an order being archived and unarchived
 later (which used to bump `updatedAt` and could miscount a day-old order as served today).
+
+---
+
+53. Acknowledging an alert is not logged to the Task 13 audit timeline
+
+The timeline records things that happened *to the order* — its status, its lines, notes staff left
+about it. Acknowledging an alert doesn't touch any of that; it's a record of who's paying attention
+to a slow order, not a change to the order itself. Adding it would also mean extending `EventType`
+for a feature that was explicitly briefed as its own task, separate from Task 13. The
+`alertAcknowledgedAt` timestamp on the order already answers "was this acknowledged, and when" for
+anyone who needs it — nothing is silently lost by leaving it out of the timeline.
+
+---
+
+54. The two alert thresholds are read from `process.env` at call time, not cached at startup
+
+`SLOW_ORDER_MINUTES` and `ALERT_REAPPEAR_MINUTES` are re-read on every request that needs them
+(`Number(process.env.X) || default`), the same `|| default` pattern already used for `PORT`. In
+practice these only change via a real deploy/restart, but there's no cost to not locking the value in
+any earlier than it has to be, and it avoids a module-load-order dependency on when `.env` gets read.
+
+---
+
+55. The alert filter stays a `where` clause, not a fetch-then-filter-in-JS
+
+Both cutoff timestamps (`SLOW_ORDER_MINUTES` and `ALERT_REAPPEAR_MINUTES` ago) are computed once in
+JS and hand straight to Prisma as `createdAt`/`alertAcknowledgedAt` comparisons, the same
+`{ notIn: [...] }` and `OR` shapes already used elsewhere in the order queries. The database does the
+actual filtering — this app never pulls every open order into memory just to decide which ones are
+slow.
+
+---
+
+56. The nav alert badge polls every 30 seconds; acknowledging invalidates that same query directly
+
+Matches the interval the dashboard (Task 11) already uses for its own auto-refresh, and there's no
+websocket/SSE channel in this app to push updates instead — polling is the option that needs no new
+infrastructure. A 30-second-stale badge count is a fine tradeoff for a restaurant floor, but waiting
+up to 30 seconds for the badge to update right after someone acknowledges an alert would feel broken,
+so the alerts page invalidates the shared `["alerts"]` query key on a successful acknowledge instead
+of waiting for the next poll.
+
+---
+
+57. Fixed `server/.gitignore` excluding `server/.env.example` from git entirely, since Task 1
+
+Its `.env.*` pattern matched `.env.example` too, so the file has existed on disk and been referenced
+by the README ("fill in server/.env using server/.env.example as a guide") since the very first
+commit, but was never actually tracked — anyone cloning the repo fresh would have nothing to copy
+from. Narrowed the pattern to just `.env` and `.env.local` (matching the root `.gitignore`) and added
+the file to git. Found while documenting this task's two new env vars in it.
+
+---
+
+58. "Clear table" on an alert reuses the existing cancel-order transition instead of a new endpoint
+
+Clearing a table when an order was never accepted is just cancelling it — the rule for when that's
+legal already exists (Task 3: only while `placed`/`accepted`, never once `preparing` has started) and
+already frees the table and logs a `status_change` event to the Task 13 timeline. A dedicated
+"clear alert" endpoint would have meant either re-implementing that same rule a second time or
+finding a reason to bypass it — reusing `PATCH /orders/:id/status` means an alerting order mid-prep
+correctly can't be cleared from this screen any more than from the order page itself, with zero new
+authorization logic to get wrong.
+
+---
+
+59. Added a second "critical" severity tier instead of leaving every alert looking the same
+
+Sorting oldest-first (already in place) tells you which alert to look at next, but in a long list
+nothing distinguished "3 minutes past the threshold" from "3 hours past it" at a glance. A
+`CRITICAL_ORDER_MINUTES` env var (default 30, independent of `SLOW_ORDER_MINUTES` rather than a
+multiplier of it, so it can be tuned on its own) escalates the visual treatment once an order is far
+enough overdue, the same warning-then-critical pattern most monitoring tools use.
+
+---
+
+60. Track who acknowledged an alert, not just when
+
+The original design recorded `alertAcknowledgedAt` but not who — meaning two different people
+silencing the same repeat alert would look identical to a manager glancing at it. Added
+`alertAcknowledgedById` alongside it. This stays a plain field on `Order`, not a Task 13 `OrderEvent`
+— decision #53's reasoning still holds, this is enriching the same non-timeline mechanism, not
+reversing the call to keep acknowledgement out of the immutable audit trail.
+
+---
+
+61. A reappeared alert is flagged as a "repeat" using the same acknowledgement fields, not new state
+
+Once `alertAcknowledgedAt` is set, it's never cleared — it just becomes old enough that the order
+starts alerting again. That means an alerting order with a non-null `alertAcknowledgedBy` is, for
+free, one that already got looked at once and is still stuck: worth flagging differently from a
+fresh alert nobody has seen yet, without adding another column to track "is this a repeat."
+
+---
+
+62. The alert thresholds are returned in the `GET /api/alerts` response body
+
+The alerts page shows copy like "open over 15 minutes" — hard-coding that number in the frontend
+would silently go stale the moment `SLOW_ORDER_MINUTES` changes in `.env`. Sending
+`{ slowOrderMinutes, alertReappearMinutes, criticalOrderMinutes }` alongside the alert list itself
+means the UI's explanation of its own behavior can never drift from what the server is actually
+enforcing.
+
+---
+
+63. Auto-clearing a stuck order cancels it — it never gets deleted
+
+Asked for literally, but a hard delete would cascade-destroy the order's entire Task 13 audit
+timeline along with it, which defeats the whole point of having an immutable history. Cancelling
+does everything the actual goal needs (table free again, available for a new order) while leaving a
+real record behind of what happened and why. Same reasoning, same mechanism, as decision #58's
+manual "Clear table" action — this is just the automatic version of it.
+
+---
+
+64. Auto-clear only ever applies to placed/accepted orders, never preparing
+
+The existing cancellation rule (decision #12, back in Task 3) already blocks cancelling once the
+kitchen has started, because the food is already being made — auto-cancelling a preparing order
+wouldn't just break that rule, it would actively throw away real food with nobody having decided to.
+A preparing order stuck past every other threshold keeps alerting at the critical tier indefinitely;
+someone has to actually look at it.
+
+---
+
+65. `OrderEvent.actorId` became optional so the auto-clear sweep can log its own actions
+
+The sweep isn't a person, so it has nobody to attribute a status-change event to. Rather than invent
+a fake "System" user account just to satisfy a NOT NULL constraint, `actorId`/`actor` became nullable
+— a null actor now means "the system did this," and the timeline renders it as "Automatically
+cancelled" instead of a name. The hard rule from Task 13 (never `.update`/`.delete` an `OrderEvent`
+row) is unaffected; this only loosens who can be the actor on a `.create`.
+
+---
+
+66. A background `setInterval` sweep, not a real job queue
+
+This app has no worker/queue infrastructure (no Redis, no Bull/Agenda), and adding one just for a
+once-a-minute check over a handful of rows would be a lot of new infrastructure for very little
+actual load. A plain `setInterval` started once at boot, checking every 60 seconds, is enough for
+how rarely an order is ever actually abandoned this long — if this app ever ran across multiple
+server instances, this would need to move to a proper single-runner job instead, but that's not
+today's problem.
+
+---
+
+67. Alert durations render in whichever unit actually reads naturally, not raw minutes
+
+An order open for 2814 minutes was rendering as "2814m," which nobody reads at a glance as "almost
+two days." `formatMinutes()` (client/src/lib/format.js) picks minutes, hours-and-minutes, or
+days-and-hours depending on magnitude — the same kind of judgment call `formatCurrency` already makes
+for money, just applied to duration.
 
 
 

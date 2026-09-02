@@ -399,7 +399,7 @@ requests rather than just asserting the swap was safe.
 
 A dashboard brief (numbered task 7 of 10 in the original wording, landing as Task 11 in this log for
 the same renumbering reason earlier tasks note): a manager-facing screen summarizing how the
-restaurant is doing headline counts, revenue, breakdowns, and a way to see what's trending, backed
+restaurant is doing — headline counts, revenue, breakdowns, and a way to see what's trending, backed
 by real aggregate queries instead of the client fetching every order and computing numbers itself.
 
 ### What it came back with
@@ -407,13 +407,13 @@ by real aggregate queries instead of the client fetching every order and computi
 One summary endpoint powering headline stat cards (open orders, placed/served today with a
 vs-yesterday delta, revenue with an average order value), an orders-by-status breakdown, an
 orders-by-waiter leaderboard, today's top sellers, a 14-day orders/revenue trend chart, and a recent
-orders feed each row a real link into that order's detail page. Gated the whole endpoint to manager
+orders feed — each row a real link into that order's detail page. Gated the whole endpoint to manager
 and above, since none of it is information a waiter needs for their own job.
 
 Afterward I asked for the dashboard to be enhanced further and pointed out the gap directly: "for
 waiter dashboard show something there not just waiter can't see the dashboard we can show some other
-dashboard there." It built a genuinely different waiter-facing view instead of a locked-out page
-their own open-order count, what they placed/served today, and their open orders sorted oldest-first
+dashboard there." It built a genuinely different waiter-facing view instead of a locked-out page —
+their own open-order count, what they placed/served today, and their open orders sorted oldest-first —
 built entirely from the "my orders" endpoint Task 4 already exposed, no new backend surface needed
 for it.
 
@@ -433,13 +433,13 @@ different waiter's own orders correctly) rather than just trusting the numbers l
 
 ### What it came back with
 
-An audit of every page first grep for every `<table>` and every fixed-width form field before
+An audit of every page — first grep for every `<table>` and every fixed-width form field before
 touching anything — which turned up the nav bar as the single most broken thing on mobile (five links
 plus brand plus user info plus logout, all in one unwrapped row), fixed first since a broken nav makes
 every other page unreachable regardless of how responsive its own content is. Every table then got
 wrapped in its own horizontally-scrolling container, header rows and a handful of fixed-width form
 fields got `flex-wrap`/full-width treatment, and it verified the result in a real browser at phone and
-tablet widths rather than just trusting the Tailwind classes were correct on paper the window-resize
+tablet widths rather than just trusting the Tailwind classes were correct on paper — the window-resize
 tool wasn't actually shrinking the browser viewport in this environment, so it improvised by embedding
 the app in same-origin iframes sized to real device widths to get a genuine narrow-viewport render to
 screenshot.
@@ -492,5 +492,99 @@ actually served, with the voided line correctly excluded.
 
 Nothing to fix — a mid-task status check, answered honestly rather than assumed finished, and the
 rest went through clean.
+
+---
+
+## Task 14 — Slow-order alerts
+
+### What I asked for
+
+A brief numbered "task 9 of 10" and marked as the last feature task before deployment. An order open
+too long without reaching Ready should show up in an alerts area with a nav count badge; a waiter or
+manager can acknowledge one to clear it, and it should come back if the order is still stuck well
+past a second, separate threshold. I gave the exact `where`-clause shape I wanted (two cutoffs
+computed in JS, the actual filtering left to Postgres, not a fetch-and-filter-in-JS), told it to make
+both thresholds environment variables with defaults and document them in `.env.example`, asked for
+the badge to poll on some reasonable interval it could pick and justify, and told it to decide for
+itself — with reasoning either way — whether acknowledging belongs in the Task 13 audit timeline. Ask
+before migrating, no deployment work, and verify for real: simulate the thresholds passing by
+directly editing a test order's timestamps instead of actually waiting, and show an order that
+reaches Ready in time never alerts at all.
+
+### What it came back with
+
+Added the `alertAcknowledgedAt` column, a shared `alertingWhere()` helper reused by both the new
+`GET /api/alerts` and the nav badge's query, and `POST /orders/:id/acknowledge-alert` behind the same
+authorization every other order mutation uses. Picked 30-second polling for the badge, matching the
+dashboard's own refresh interval, and had the alerts page invalidate that same query on acknowledge
+so the badge doesn't sit stale for up to 30 seconds after someone actually clears one. For the
+timeline question, it decided against logging acknowledgements there — its reasoning: the timeline
+records what happened to the order itself, and acknowledging an alert doesn't change the order's
+status, lines, or bill, it's a record of staff attention, not order history.
+
+Verified with one order backdated 20 minutes past the default threshold (it appeared in `/alerts`), a
+second order pushed to Ready well inside the threshold (it never appeared at all), acknowledging the
+first (it disappeared immediately), then backdating its acknowledgement past the reappear window (it
+came back). Also checked authorization on the way: a waiter's alert list only showed their own
+orders, and a waiter got a 403 trying to acknowledge someone else's.
+
+It also caught something unrelated to the feature itself while adding the new env vars to
+`.env.example`: `server/.gitignore`'s `.env.*` pattern had been excluding that file from git since
+the very first commit, despite the README telling every new developer to copy it. Flagged it, I said
+fix it, and it narrowed the pattern and committed the file that should have been there all along.
+
+### What I had to catch or fix along the way
+
+Nothing in the feature itself — but while writing this up, it caught a real mistake spanning its own
+last two documentation passes: a string of dropped em-dashes across the Task 11, 12, and 13 entries in
+`plan.md` and `decisions.md`, plus one in the README's own Task 13 row — each one turning a sentence
+into a run-on that didn't actually parse (one example literally read "including for a manager an audit
+trail that can be edited" with no dash between the two halves). Found by rereading its own prior work
+line by line rather than by me pointing it out, and fixed everywhere it turned up before adding this
+task's own entries.
+
+---
+
+## Task 14, follow-up 2 — auto-clearing abandoned orders
+
+### What I asked for
+
+I pointed at a real screen showing "Critical — open 2814m" and said that number needs to read like
+actual time (seconds/minutes/hours as appropriate), and asked for a genuinely automatic feature on
+top: an order stuck past 45 minutes to an hour should get cleared on its own so the table becomes
+available again, without anyone having to click anything.
+
+### What it came back with
+
+Fixed the duration display with a proper formatter that picks minutes, hours-and-minutes, or
+days-and-hours depending on magnitude. For the automatic clearing, it flagged a distinction before
+building anything: "deleted" would destroy the order's whole Task 13 audit history along with it, so
+it built this as an automatic cancel instead — same mechanism as the existing manual "Clear table"
+button, which already achieves the actual goal (table free, available again) without losing the
+record. It also scoped auto-clearing to placed/accepted orders only, explaining that a preparing
+order can't be safely auto-cancelled since the kitchen has already started on it — that one keeps
+alerting until a person deals with it instead. Built as a background check running once a minute
+inside the existing server process (no new job-queue infrastructure), and made the audit event's
+actor field optional so the system itself can log what it did, with the timeline showing "Automatically
+cancelled" instead of a person's name.
+
+Verified by backdating a placed order and a preparing order both past the 45-minute default, running
+the sweep, and confirming the placed one got cancelled (table freed, timeline entry present with a
+null actor) while the preparing one was left alone and kept alerting. Running the sweep for real also
+auto-cancelled four genuinely stale orders left over from much earlier testing sessions that had been
+sitting untouched in the database for days — the sweep working correctly on actual old data, not just
+a freshly built test case.
+
+### What I had to catch or fix along the way
+
+Hit a real environment snag partway through: the Prisma migration for the actor-field change failed
+twice — once with `npx` trying to install and run the release-candidate version of Prisma instead of
+the project's pinned stable one (the exact issue from decision #1, resurfacing through `npx`'s own
+resolution rather than anything about this project), and once with the database genuinely unreachable
+from this machine for a few seconds (the same kind of connectivity blip noted in decisions #18–19).
+Neither got waved through — the RC install was killed before it could run anything, confirmed the
+local dependency was still correctly pinned at 7.10.0, and switched to calling the local `prisma`
+binary directly instead of through `npx` to make sure it couldn't happen again. The database blip
+cleared on a retry.
 
 

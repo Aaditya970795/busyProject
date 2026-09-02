@@ -11,6 +11,7 @@ import {
   addCollaborator,
   addNote,
   getTimeline,
+  acknowledgeAlert,
   archiveOrder,
   unarchiveOrder,
   deleteOrder,
@@ -31,6 +32,7 @@ router.post("/:id/lines/:lineId/void", requireAuth, voidLine);
 router.post("/:id/collaborators", requireAuth, addCollaborator);
 router.post("/:id/notes", requireAuth, addNote);
 router.get("/:id/timeline", requireAuth, getTimeline);
+router.post("/:id/acknowledge-alert", requireAuth, acknowledgeAlert);
 router.post("/:id/archive", requireAuth, archiveOrder);
 router.post("/:id/unarchive", requireAuth, unarchiveOrder);
 router.delete("/:id", requireAuth, deleteOrder);

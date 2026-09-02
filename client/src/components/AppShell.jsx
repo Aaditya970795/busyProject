@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Outlet, useNavigate, NavLink } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { isManagerOrAbove } from "../lib/roles";
 import { LogoutIcon, MenuIcon, XIcon } from "./icons";
@@ -15,11 +17,33 @@ const MOBILE_NAV_LINK_CLASS = ({ isActive }) =>
     isActive ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
   }`;
 
+// Polled rather than pushed — there's no websocket/SSE channel in this app, and a badge count
+// being up to 30s stale is a fine tradeoff for not building one just for this. The alerts page
+// itself invalidates this same query key on acknowledge, so acting on an alert clears the badge
+// immediately instead of waiting for the next poll.
+const ALERTS_POLL_INTERVAL_MS = 30 * 1000;
+
+function AlertsBadge({ count }) {
+  if (!count) return null;
+  return (
+    <span className="inline-flex min-w-[1.125rem] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-4 text-white">
+      {count}
+    </span>
+  );
+}
+
 export function AppShell() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const isManager = isManagerOrAbove(user?.role);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const { data: alertsData } = useQuery({
+    queryKey: ["alerts"],
+    queryFn: () => api.get("/alerts"),
+    refetchInterval: ALERTS_POLL_INTERVAL_MS,
+  });
+  const alertCount = alertsData?.count ?? 0;
 
   async function handleLogout() {
     setMobileMenuOpen(false);
@@ -40,6 +64,12 @@ export function AppShell() {
       </NavLink>
       <NavLink to="/orders" className={NAV_LINK_CLASS}>
         Orders
+      </NavLink>
+      <NavLink to="/alerts" className={NAV_LINK_CLASS}>
+        <span className="inline-flex items-center gap-1.5">
+          Alerts
+          <AlertsBadge count={alertCount} />
+        </span>
       </NavLink>
       {isManager && (
         <NavLink to="/team" className={NAV_LINK_CLASS}>
@@ -62,6 +92,12 @@ export function AppShell() {
       </NavLink>
       <NavLink to="/orders" className={MOBILE_NAV_LINK_CLASS} onClick={() => setMobileMenuOpen(false)}>
         Orders
+      </NavLink>
+      <NavLink to="/alerts" className={MOBILE_NAV_LINK_CLASS} onClick={() => setMobileMenuOpen(false)}>
+        <span className="inline-flex items-center gap-1.5">
+          Alerts
+          <AlertsBadge count={alertCount} />
+        </span>
       </NavLink>
       {isManager && (
         <NavLink to="/team" className={MOBILE_NAV_LINK_CLASS} onClick={() => setMobileMenuOpen(false)}>

@@ -165,20 +165,20 @@ A single manager-facing screen answering "how's the restaurant doing right now":
 (open orders, orders placed today, orders served today with a vs-yesterday delta, revenue today with
 an average-order-value figure), a breakdown of open/closed orders by status, a leaderboard of orders
 by waiter, today's top-selling items by quantity and revenue, a 14-day trend chart togglable between
-orders-served and revenue, and a feed of the most recent orders each one linking straight into that
+orders-served and revenue, and a feed of the most recent orders — each one linking straight into that
 order's detail page. The whole summary comes from one endpoint (`GET /api/dashboard/summary`),
 computed server-side rather than shipping every order to the browser and aggregating it there.
 
 A follow-up pass then asked for the dashboard to actually mean something for a waiter too, since the
 first version simply hid the whole page from anyone who wasn't a manager. Waiters now get a real,
-different view instead of a blank restriction message a worklist built from their own
+different view instead of a blank restriction message — a worklist built from their own
 `GET /orders/mine` data: how many of their orders are still open, how many they placed and served
 today, and their open orders sorted oldest-first, since those are the ones that have been waiting
 longest.
 
 Why this came after the account-provisioning and password-reset work: a "how's the restaurant doing"
-view only makes sense once there's a stable set of roles to build different views for a manager
-sees restaurant-wide numbers, a waiter sees their own worklist and both needed the account model
+view only makes sense once there's a stable set of roles to build different views for — a manager
+sees restaurant-wide numbers, a waiter sees their own worklist — and both needed the account model
 from Tasks 9 and 10 settled first.
 
 ### Task 12 — Fully responsive UI pass
@@ -193,7 +193,7 @@ the page layout, and header rows plus a handful of fixed-width form fields now w
 width instead of overflowing or getting squeezed unreadably small.
 
 Why this came last, after every feature task: a responsive pass is the kind of thing that's worth
-doing once across a finished set of pages, not repeated after every individual feature lands
+doing once across a finished set of pages, not repeated after every individual feature lands —
 retrofitting every page at once also meant one consistent pattern (the same horizontal-scroll-table
 treatment, the same header flex-wrap fix) instead of a different ad hoc fix per page.
 
@@ -203,13 +203,13 @@ A brief numbered "task 8 of 10" (landing as Task 13 in this log, same renumberin
 6 and 7 already noted). Every order now keeps a permanent, append-only history of everything that
 happened to it: every status change (old status, new status, who did it), every line added or
 voided (with the void reason), and any free-text note a manager or waiter leaves on it. A new
-`OrderEvent` row is written in the same database transaction as the change it records a status
-update, a line being added, a line being voided so the mutation and its audit entry can never
+`OrderEvent` row is written in the same database transaction as the change it records — a status
+update, a line being added, a line being voided — so the mutation and its audit entry can never
 land as two separate statements that drift apart if one succeeds and the other doesn't. Nothing in
-the app is ever allowed to update or delete one of these rows once written, including for a manager
+the app is ever allowed to update or delete one of these rows once written, including for a manager —
 an audit trail that can be edited after the fact isn't an audit trail. The order-detail page shows
 this as a plain-English activity feed ("Jane changed status from Placed to Accepted", "Raj voided
-'Grilled Salmon'reason: out of stock"), with a small form to add a note.
+'Grilled Salmon' — reason: out of stock"), with a small form to add a note.
 
 This also gave the dashboard (Task 11) a real fix for something it had been approximating since it
 was built: "served today" and the 14-day served/revenue trend used to be guessed from an order's
@@ -221,4 +221,62 @@ Why this came after every earlier feature task: an audit trail only has somethin
 there are actual status changes, line edits, and voids happening — Tasks 2 through 10 built all of
 the mutations this task now logs. It came before any alerting work (explicitly out of scope for this
 task) since alerts would need to react to these same events, which had to exist first.
+
+### Task 14 — Slow-order alerts
+
+A brief numbered "task 9 of 10" and the last feature task before deployment work. An order that's
+been open too long without reaching Ready now shows up in an alerts list, with a live count badge in
+the nav; a waiter or manager can acknowledge one to clear it, and it comes back on its own if the
+order is still stuck well past the threshold. Both time windows (how long counts as "too long," and
+how long an acknowledgement holds before the alert is allowed to return) are environment variables
+with same defaults, not hard-coded numbers. The nav badge polls the same alerts endpoint every 30
+seconds, and the alerts page itself invalidates that query the moment something gets acknowledged, so
+acting on an alert clears the badge immediately instead of waiting for the next poll.
+
+Whether acknowledging an alert belongs in the Task 13 audit timeline got its own real decision rather
+than a default one either way — see `docs/decisions.md`. Short version: it doesn't log there,
+because it's a triage action about who's watching the order, not something that changed the order's
+food, bill, or lifecycle the way a status change or a line edit does.
+
+Why this came after the audit timeline and before deployment: an alert is really just a query over
+data that already exists (`createdAt`, `status`) plus one new timestamp for acknowledgement, so it
+didn't need anything from Task 13 to function — but it's the last piece of restaurant-facing
+functionality the brief asked for, which made it the natural last stop before the brief's own final
+task (deployment, numbered "task 10 of 10" there — not to be confused with this log's own Task 10,
+password reset), where no more features get added.
+
+A follow-up pass then asked what "acknowledge" actually accomplishes in practice, and pushed for
+three real gaps: a way to fully clear a table when an order was never even accepted and a waiter
+just wants it gone, some way to tell how overdue an order really is instead of every alert looking
+the same, and accountability for who's been silencing alerts. All three landed: a "Clear table"
+action on each alert that's really just the existing cancel-order transition (Task 3) reused, so an
+order already being prepared correctly can't be cleared from here any more than from the order page
+itself; a second "critical" severity tier (`CRITICAL_ORDER_MINUTES`, default 30) that visually
+escalates an alert far past the base threshold instead of leaving every alert looking identical; and
+an `alertAcknowledgedById` column recording who acknowledged an alert, surfaced both as a "Repeat"
+tag on an alert that already came back once and on the order-detail page itself.
+
+Why this landed as a follow-up instead of its own task: none of it needed anything beyond what
+alerts already had — it's the same feature made to actually answer the two questions a real
+restaurant floor would ask of it ("can I just get rid of this" and "who's been ignoring this"),
+not a new capability layered on top.
+
+A second follow-up caught two more real gaps: the "open Xm" figure on a long-neglected alert was
+showing raw minutes (`2814m` for an order open nearly two days), and there was still no way for a
+truly abandoned order to clear itself without a person noticing and clicking something. The first
+got a proper duration formatter (`42m`, `3h 5m`, `1d 22h`, whichever unit actually reads naturally).
+The second got a background sweep, checking once a minute, that automatically cancels any
+placed/accepted order left open past a new `AUTO_CLEAR_MINUTES` threshold (default 45) — freeing its
+table with no human action needed. It cancels rather than deletes, for the same reason the manual
+"Clear table" action does: deleting would cascade-destroy the order's Task 13 audit history, and
+cancelling already frees the table just as completely. It's also scoped to placed/accepted only,
+never preparing, since the kitchen has already started on a preparing order and auto-cancelling that
+would waste real food, not just break a rule — a preparing order stuck this long keeps alerting at
+the critical tier forever until a person actually deals with it. `OrderEvent.actorId` became
+optional to make this possible, since a system-triggered event has nobody to attribute it to; the
+timeline renders it as "Automatically cancelled" instead of a person's name.
+
+Running the sweep also cleared out several long-dead orders left over from much earlier testing
+sessions that had been sitting in `placed` since before this feature existed — a real demonstration
+that the sweep works on genuinely stale data, not just a freshly-created test order.
 

@@ -7,6 +7,7 @@ import orderRoutes from "./routes/order.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import tableRoutes from "./routes/table.routes.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
+import alertRoutes from "./routes/alert.routes.js";
 
 const app = express();
 
@@ -20,6 +21,7 @@ app.use("/api/orders", orderRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/tables", tableRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/alerts", alertRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: "Not found" });

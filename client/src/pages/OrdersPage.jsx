@@ -5,6 +5,12 @@ import { api } from "../lib/api";
 import { StatusBadge } from "../components/StatusBadge";
 import { formatCurrency } from "../lib/format";
 import { PlusIcon, ReceiptIcon, SearchIcon, ChevronUpIcon, ChevronDownIcon } from "../components/icons";
+import { PageHeader } from "../components/ui/PageHeader";
+import { DarkCard, DarkPanelCard, DarkEmptyState } from "../components/ui/DarkCard";
+import { Button } from "../components/ui/Button";
+import { Input, Select } from "../components/ui/DarkInput";
+import { ErrorMessage } from "../components/ui/ErrorMessage";
+import { TableSkeleton } from "../components/ui/Skeleton";
 
 const ORDER_STATUSES = ["placed", "accepted", "preparing", "ready", "served", "cancelled"];
 const PAGE_SIZE = 10;
@@ -148,38 +154,28 @@ export function OrdersPage() {
 
   return (
     <div>
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Orders</h1>
-          <p className="mt-0.5 text-sm text-slate-500">Open a new ticket or jump back into one.</p>
-        </div>
-        <div className="flex items-end gap-2">
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Export date</label>
-            <input
+      <PageHeader
+        title="Orders"
+        subtitle="Open a new ticket or jump back into one."
+        action={
+          <div className="flex items-end gap-2">
+            <Input
+              label="Export date"
+              labelClassName="text-white"
               type="date"
               value={exportDate}
               onChange={(e) => setExportDate(e.target.value)}
-              className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
+            <Button variant="secondaryDark" onClick={handleExport} loading={isExporting}>
+              Export CSV
+            </Button>
           </div>
-          <button
-            type="button"
-            onClick={handleExport}
-            disabled={isExporting}
-            className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:opacity-50"
-          >
-            {isExporting ? "Exporting…" : "Export CSV"}
-          </button>
-        </div>
-      </div>
-      {exportError && <p className="mt-2 text-sm text-red-600">{exportError}</p>}
+        }
+      />
+      <ErrorMessage error={exportError} className="mt-2" />
 
-      <form
-        onSubmit={handleCreate}
-        className="mt-5 max-w-lg rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-      >
-        <label className="block text-sm font-medium text-slate-700">Table</label>
+      <DarkCard className="mt-5 max-w-lg">
+        <label className="block text-sm font-medium text-zinc-300">Table</label>
         <div className="relative mt-1">
           <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-400">
             <SearchIcon width="14" height="14" />
@@ -188,7 +184,7 @@ export function OrdersPage() {
             value={tableSearch}
             onChange={(e) => setTableSearch(e.target.value)}
             placeholder="Search a free table…"
-            className="w-full rounded-md border border-slate-300 py-2 pl-9 pr-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="w-full rounded-md border border-slate-300 py-2 pl-9 pr-3 text-sm text-white transition-colors focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
         </div>
 
@@ -200,132 +196,134 @@ export function OrdersPage() {
               onClick={() => setSelectedTable(table.number)}
               className={`rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
                 selectedTable === table.number
-                  ? "border-indigo-600 bg-indigo-600 text-white"
-                  : "border-slate-300 text-slate-700 hover:border-indigo-300 hover:bg-indigo-50"
+                  ? "border-indigo-500 bg-indigo-600 text-white"
+                  : "border-white/15 bg-white/5 text-zinc-200 hover:border-indigo-400/40 hover:bg-indigo-500/10"
               }`}
             >
               Table {table.number}
             </button>
           ))}
           {availableTables.length === 0 && (
-            <p className="py-1 text-sm text-slate-400">
+            <p className="py-1 text-sm text-zinc-500">
               {tableSearch ? "No free tables match your search." : "No free tables right now."}
             </p>
           )}
         </div>
 
         <div className="mt-4 flex flex-wrap items-end gap-3">
-          <div className="min-w-[10rem] flex-1">
-            <label className="block text-sm font-medium text-slate-700">First item</label>
-            <select
-              value={menuItemId}
-              onChange={(e) => setMenuItemId(e.target.value)}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            >
-              <option value="">Select an item</option>
-              {menuData?.menuItems.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name} — {formatCurrency(item.price)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="w-24">
-            <label className="block text-sm font-medium text-slate-700">Qty</label>
-            <input
-              type="number"
-              min="1"
-              step="1"
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
+          <Select
+            label="First item"
+            labelClassName="text-zinc-300"
+            value={menuItemId}
+            onChange={(e) => setMenuItemId(e.target.value)}
+            containerClassName="min-w-[10rem] flex-1"
+          >
+            <option value="">Select an item</option>
+            {menuData?.menuItems.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name} — {formatCurrency(item.price)}
+              </option>
+            ))}
+          </Select>
+          <Input
+            label="Qty"
+            labelClassName="text-white"
+            type="number"
+            min="1"
+            step="1"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            containerClassName="w-24"
+          />
         </div>
-        <p className="mt-2 text-xs text-slate-400">An order needs at least one item to be created.</p>
+        <p className="mt-2 text-xs text-zinc-500">An order needs at least one item to be created.</p>
 
-        <button
+        <Button
           type="submit"
+          onClick={handleCreate}
           disabled={!selectedTable || !menuItemId || createMutation.isPending}
-          className="mt-4 flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-50"
+          loading={createMutation.isPending}
+          className="mt-4"
         >
           <PlusIcon />
           New order
-        </button>
-      </form>
-      {createMutation.error && (
-        <p className="mt-2 text-sm text-red-600">{createMutation.error.message}</p>
-      )}
+        </Button>
+      </DarkCard>
+      <ErrorMessage error={createMutation.error} className="mt-2" />
 
       <div className="mt-8 flex flex-wrap items-end gap-3">
         <div className="relative min-w-[10rem] flex-1">
-          <label className="block text-sm font-medium text-slate-700">Search</label>
-          <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center pt-5 text-slate-400">
-            <SearchIcon width="14" height="14" />
-          </span>
-          <input
+          <Input
+            label="Search"
+            labelClassName="text-white"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Table number…"
-            className="mt-1 w-full rounded-md border border-slate-300 py-2 pl-9 pr-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="pl-9"
           />
+          <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center pt-5 text-slate-400">
+            <SearchIcon width="14" height="14" />
+          </span>
         </div>
-        <div className="w-40">
-          <label className="block text-sm font-medium text-slate-700">Status</label>
-          <select
-            value={statusFilter}
-            onChange={(e) => handleStatusFilterChange(e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm capitalize focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          >
-            <option value="">Any status</option>
-            {ORDER_STATUSES.map((status) => (
-              <option key={status} value={status} className="capitalize">
-                {status}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="w-44">
-          <label className="block text-sm font-medium text-slate-700">Waiter</label>
-          <select
-            value={waiterFilter}
-            onChange={(e) => handleWaiterFilterChange(e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          >
-            <option value="">Any waiter</option>
-            {waiterData?.users.map((waiter) => (
-              <option key={waiter.id} value={waiter.id}>
-                {waiter.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="w-40">
-          <label className="block text-sm font-medium text-slate-700">Date</label>
-          <input
-            type="date"
-            value={dateFilter}
-            onChange={(e) => handleDateFilterChange(e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
-        </div>
+        <Select
+          label="Status"
+          labelClassName="text-white"
+          value={statusFilter}
+          onChange={(e) => handleStatusFilterChange(e.target.value)}
+          className="capitalize"
+          containerClassName="w-40"
+        >
+          <option value="">Any status</option>
+          {ORDER_STATUSES.map((status) => (
+            <option key={status} value={status} className="capitalize">
+              {status}
+            </option>
+          ))}
+        </Select>
+        <Select
+          label="Waiter"
+          labelClassName="text-white"
+          value={waiterFilter}
+          onChange={(e) => handleWaiterFilterChange(e.target.value)}
+          containerClassName="w-44"
+        >
+          <option value="">Any waiter</option>
+          {waiterData?.users.map((waiter) => (
+            <option key={waiter.id} value={waiter.id}>
+              {waiter.name}
+            </option>
+          ))}
+        </Select>
+        <Input
+          label="Date"
+          labelClassName="text-white"
+          type="date"
+          value={dateFilter}
+          onChange={(e) => handleDateFilterChange(e.target.value)}
+          containerClassName="w-40"
+        />
       </div>
 
-      {isLoading && <p className="mt-6 text-sm text-slate-500">Loading…</p>}
-      {error && <p className="mt-6 text-sm text-red-600">{error.message}</p>}
+      <ErrorMessage error={error} className="mt-6" />
+
+      {isLoading && (
+        <DarkPanelCard className="mt-4">
+          <TableSkeleton cols={5} />
+        </DarkPanelCard>
+      )}
 
       {data && (
         <>
-          <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <DarkPanelCard className="mt-4 animate-fade-in">
             <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="bg-white/5 text-xs uppercase tracking-wide text-zinc-400">
                 <tr>
                   {SORT_COLUMNS.map((column) => (
                     <th key={column.field} className="px-5 py-3 font-medium">
                       <button
                         onClick={() => toggleSort(column.field)}
-                        className="flex items-center gap-1 hover:text-slate-800"
+                        className="flex items-center gap-1 transition-colors hover:text-white"
                       >
                         {column.label}
                         {sort.field === column.field &&
@@ -337,22 +335,22 @@ export function OrdersPage() {
                   <th className="px-5 py-3 font-medium">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-white/5">
                 {orders.map((order) => (
-                  <tr key={order.id} className="transition-colors hover:bg-slate-50">
-                    <td className="px-5 py-3 font-medium text-slate-900">
+                  <tr key={order.id} className="transition-colors hover:bg-white/5">
+                    <td className="px-5 py-3 font-medium text-white">
                       <span className="inline-flex items-center gap-2">
-                        <ReceiptIcon width="14" height="14" className="text-indigo-600" />
+                        <ReceiptIcon width="14" height="14" className="text-indigo-400" />
                         Table {order.tableNumber}
                       </span>
                     </td>
                     <td className="px-5 py-3">
                       <StatusBadge status={order.status} />
                     </td>
-                    <td className="px-5 py-3 text-slate-500">{new Date(order.createdAt).toLocaleString()}</td>
-                    <td className="px-5 py-3 text-slate-600">{order.primaryWaiter?.name ?? "—"}</td>
+                    <td className="px-5 py-3 text-white">{new Date(order.createdAt).toLocaleString()}</td>
+                    <td className="px-5 py-3 text-white">{order.primaryWaiter?.name ?? "—"}</td>
                     <td className="px-5 py-3">
-                      <Link to={`/orders/${order.id}`} className="text-indigo-600 hover:underline">
+                      <Link to={`/orders/${order.id}`} className="text-indigo-400 transition-colors hover:underline">
                         View
                       </Link>
                     </td>
@@ -360,36 +358,38 @@ export function OrdersPage() {
                 ))}
                 {orders.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-5 py-10 text-center text-slate-400">
-                      No orders match your filters.
+                    <td colSpan={5}>
+                      <DarkEmptyState title="No orders match your filters." />
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
             </div>
-          </div>
+          </DarkPanelCard>
 
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-white">
             <span>{total === 0 ? "No results" : `Showing ${from}–${to} of ${total}`}</span>
             <div className="flex items-center gap-2">
-              <button
+              <Button
+                variant="secondaryDark"
+                size="md"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1}
-                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-40"
               >
                 Prev
-              </button>
+              </Button>
               <span>
                 Page {page} of {totalPages}
               </span>
-              <button
+              <Button
+                variant="secondaryDark"
+                size="md"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page >= totalPages}
-                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-40"
               >
                 Next
-              </button>
+              </Button>
             </div>
           </div>
         </>

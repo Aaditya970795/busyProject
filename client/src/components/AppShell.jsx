@@ -7,16 +7,21 @@ import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { isManagerOrAbove } from "../lib/roles";
 import { LogoutIcon, MenuIcon, XIcon } from "./icons";
+import { Footer } from "./Footer";
+import { PageTransition } from "./ui/PageTransition";
+import { BackgroundRippleEffect } from "./ui/BackgroundRippleEffect";
 
 const NAV_LINK_CLASS = ({ isActive }) =>
-  `rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
-    isActive ? "bg-indigo-600 text-white" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+  `relative rounded-full px-3.5 py-1.5 text-sm font-medium transition-all duration-200 ${
+    isActive
+      ? "brand-gradient text-white shadow-md shadow-indigo-500/30"
+      : "text-zinc-400 hover:bg-white/5 hover:text-white"
   }`;
 
 // Same links, styled for a stacked mobile drawer instead of an inline pill row.
 const MOBILE_NAV_LINK_CLASS = ({ isActive }) =>
-  `block rounded-md px-3 py-2 text-base font-medium ${
-    isActive ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
+  `block rounded-xl px-3.5 py-2.5 text-base font-medium transition-colors ${
+    isActive ? "brand-gradient text-white shadow-md shadow-indigo-500/30" : "text-zinc-300 hover:bg-white/5 hover:text-white"
   }`;
 
 // Polled rather than pushed — there's no websocket/SSE channel in this app, and a badge count
@@ -32,8 +37,19 @@ const NOTIFICATIONS_POLL_INTERVAL_MS = 30 * 1000;
 function AlertsBadge({ count }) {
   if (!count) return null;
   return (
-    <span className="inline-flex min-w-[1.125rem] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-4 text-white">
+    <span className="animate-pulse-ring inline-flex min-w-[1.125rem] items-center justify-center rounded-full bg-gradient-to-br from-rose-500 to-red-600 px-1 text-[10px] font-bold leading-4 text-white">
       {count}
+    </span>
+  );
+}
+
+function LogoutButton({ className = "" }) {
+  return (
+    <span
+      className={`flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-sm font-medium text-zinc-200 backdrop-blur transition-colors hover:border-white/20 hover:bg-white/10 hover:text-white ${className}`}
+    >
+      <LogoutIcon />
+      Log out
     </span>
   );
 }
@@ -137,65 +153,68 @@ export function AppShell() {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100">
+    <div className="flex min-h-screen flex-col bg-zinc-950">
+      <BackgroundRippleEffect />
       <ToastContainer position="top-right" autoClose={6000} newestOnTop />
-      <nav className="sticky top-0 z-10 border-b border-slate-200 bg-white/80 backdrop-blur">
-        <div className="flex items-center justify-between px-4 py-3 sm:px-6">
+      <nav className="sticky top-0 z-10 overflow-hidden bg-zinc-950 shadow-lg shadow-black/10">
+        <div className="pointer-events-none absolute inset-0 bg-mesh-glow" />
+        <div className="relative flex items-center justify-between px-4 py-3.5 sm:px-6">
           <div className="flex items-center gap-6">
-            <span className="flex items-center gap-2 font-semibold text-slate-900">
-              <span className="grid h-7 w-7 place-items-center rounded-lg bg-indigo-600 text-sm text-white">
+            <span className="flex items-center gap-2.5 font-bold text-white">
+              <span className="brand-gradient grid h-9 w-9 place-items-center rounded-xl text-base shadow-lg shadow-indigo-500/30">
                 O
               </span>
-              <span className="hidden sm:inline">Order Management</span>
+              <span className="hidden text-[1.05rem] tracking-tight sm:inline">
+                Order <span className="brand-gradient-text">Management</span>
+              </span>
             </span>
             <div className="hidden items-center gap-1 md:flex">{navLinks}</div>
           </div>
 
           <div className="hidden items-center gap-4 md:flex">
             <div className="text-right leading-tight">
-              <p className="text-sm font-medium text-slate-800">{user?.name}</p>
-              <p className="text-xs capitalize text-slate-400">{user?.role}</p>
+              <p className="text-sm font-medium text-white">{user?.name}</p>
+              <span className="inline-block rounded-full border border-violet-400/30 bg-violet-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-300">
+                {user?.role}
+              </span>
             </div>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-50"
-            >
-              <LogoutIcon />
-              Log out
+            <button onClick={handleLogout}>
+              <LogoutButton />
             </button>
           </div>
 
           <button
             onClick={() => setMobileMenuOpen((open) => !open)}
             aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
-            className="rounded-md p-2 text-slate-600 hover:bg-slate-100 md:hidden"
+            className="rounded-full p-2 text-zinc-300 transition-colors hover:bg-white/10 hover:text-white md:hidden"
           >
             {mobileMenuOpen ? <XIcon /> : <MenuIcon />}
           </button>
         </div>
 
         {mobileMenuOpen && (
-          <div className="border-t border-slate-200 bg-white px-4 py-3 md:hidden">
+          <div className="animate-fade-in-fast relative border-t border-white/10 bg-zinc-950 px-4 py-3 md:hidden">
             <div className="flex flex-col gap-1">{mobileNavLinks}</div>
-            <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
+            <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-3">
               <div className="leading-tight">
-                <p className="text-sm font-medium text-slate-800">{user?.name}</p>
-                <p className="text-xs capitalize text-slate-400">{user?.role}</p>
+                <p className="text-sm font-medium text-white">{user?.name}</p>
+                <span className="inline-block rounded-full border border-violet-400/30 bg-violet-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-300">
+                  {user?.role}
+                </span>
               </div>
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-50"
-              >
-                <LogoutIcon />
-                Log out
+              <button onClick={handleLogout}>
+                <LogoutButton />
               </button>
             </div>
           </div>
         )}
       </nav>
-      <main className="mx-auto max-w-6xl p-4 sm:p-6">
-        <Outlet />
+      <main className="mx-auto w-full max-w-6xl flex-1 p-4 sm:p-6">
+        <PageTransition>
+          <Outlet />
+        </PageTransition>
       </main>
+      <Footer />
     </div>
   );
 }

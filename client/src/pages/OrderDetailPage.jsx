@@ -8,6 +8,13 @@ import { StatusBadge } from "../components/StatusBadge";
 import { formatCurrency } from "../lib/format";
 import { CANCELLABLE_STATUSES, OPEN_STATUSES } from "../lib/orderStatus";
 import { ArrowLeftIcon, PlusIcon, TrashIcon, UserPlusIcon } from "../components/icons";
+import { DarkCard, DarkPanelCard, DarkEmptyState } from "../components/ui/DarkCard";
+import { Button } from "../components/ui/Button";
+import { Input } from "../components/ui/Input";
+import { Select } from "../components/ui/Select";
+import { Badge } from "../components/ui/Badge";
+import { ErrorMessage } from "../components/ui/ErrorMessage";
+import { Skeleton, TableSkeleton } from "../components/ui/Skeleton";
 
 const NEXT_STATUS = {
   placed: "accepted",
@@ -184,18 +191,28 @@ export function OrderDetailPage() {
     addNoteMutation.mutate(noteText.trim());
   }
 
-  if (isLoading) return <p className="text-sm text-slate-500">Loading…</p>;
-  if (error) return <p className="text-sm text-red-600">{error.message}</p>;
+  if (isLoading) {
+    return (
+      <div>
+        <Skeleton className="h-4 w-28 bg-white/10" />
+        <Skeleton className="mt-3 h-8 w-48 bg-white/10" />
+        <DarkPanelCard className="mt-5">
+          <TableSkeleton cols={6} />
+        </DarkPanelCard>
+      </div>
+    );
+  }
+  if (error) return <ErrorMessage error={error} />;
 
   const { total } = data;
   const nextStatus = NEXT_STATUS[order.status];
   const isOpen = OPEN_STATUSES.has(order.status);
 
   return (
-    <div>
+    <div className="animate-fade-in">
       <Link
         to="/orders"
-        className="inline-flex items-center gap-1.5 text-sm text-slate-500 transition-colors hover:text-slate-800"
+        className="inline-flex items-center gap-1.5 text-sm text-zinc-400 transition-colors hover:text-white"
       >
         <ArrowLeftIcon />
         Back to orders
@@ -203,148 +220,129 @@ export function OrderDetailPage() {
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Table {order.tableNumber}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-white">Table {order.tableNumber}</h1>
           <StatusBadge status={order.status} />
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           {nextStatus && (
-            <button
-              onClick={() => statusMutation.mutate(nextStatus)}
-              disabled={statusMutation.isPending}
-              className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-50"
-            >
+            <Button onClick={() => statusMutation.mutate(nextStatus)} loading={statusMutation.isPending}>
               {NEXT_STATUS_LABEL[nextStatus]}
-            </button>
+            </Button>
           )}
 
           {CANCELLABLE_STATUSES.has(order.status) &&
             (confirmingCancel ? (
-              <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm">
-                <span className="text-amber-700">Cancel this order?</span>
-                <button
+              <div className="flex items-center gap-2 rounded-md border border-amber-400/30 bg-amber-500/10 px-3 py-1.5 text-sm animate-scale-in">
+                <span className="text-amber-300">Cancel this order?</span>
+                <Button
+                  size="sm"
+                  className="bg-amber-600 hover:bg-amber-700"
                   onClick={() => statusMutation.mutate("cancelled")}
-                  disabled={statusMutation.isPending}
-                  className="rounded-md bg-amber-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-amber-700 disabled:opacity-50"
+                  loading={statusMutation.isPending}
                 >
-                  {statusMutation.isPending ? "Cancelling…" : "Yes, cancel"}
-                </button>
+                  Yes, cancel
+                </Button>
                 <button
                   onClick={() => setConfirmingCancel(false)}
-                  className="rounded-md px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                  className="rounded-md px-2.5 py-1 text-xs font-medium text-zinc-400 transition-colors hover:bg-white/10"
                 >
                   Never mind
                 </button>
               </div>
             ) : (
-              <button
+              <Button
+                variant="secondaryDark"
+                className="hover:border-amber-400/40 hover:bg-amber-500/10 hover:text-amber-300"
                 onClick={() => setConfirmingCancel(true)}
-                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 transition-colors hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700"
               >
                 Cancel order
-              </button>
+              </Button>
             ))}
 
           {confirmingDelete ? (
-            <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-sm">
-              <span className="text-red-700">Delete this order?</span>
-              <button
-                onClick={() => deleteMutation.mutate()}
-                disabled={deleteMutation.isPending}
-                className="rounded-md bg-red-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
-              >
-                {deleteMutation.isPending ? "Deleting…" : "Yes, delete"}
-              </button>
+            <div className="flex items-center gap-2 rounded-md border border-red-400/30 bg-red-500/10 px-3 py-1.5 text-sm animate-scale-in">
+              <span className="text-red-300">Delete this order?</span>
+              <Button size="sm" variant="danger" onClick={() => deleteMutation.mutate()} loading={deleteMutation.isPending}>
+                Yes, delete
+              </Button>
               <button
                 onClick={() => setConfirmingDelete(false)}
-                className="rounded-md px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                className="rounded-md px-2.5 py-1 text-xs font-medium text-zinc-400 transition-colors hover:bg-white/10"
               >
                 Cancel
               </button>
             </div>
           ) : (
-            <button
+            <Button
+              variant="secondaryDark"
+              className="hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-300"
               onClick={() => setConfirmingDelete(true)}
-              className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-700"
             >
               <TrashIcon />
               Delete order
-            </button>
+            </Button>
           )}
         </div>
       </div>
       {order.alertAcknowledgedAt && order.alertAcknowledgedBy && (
-        <p className="mt-1 text-xs text-slate-400">
+        <p className="mt-1 text-xs text-zinc-500">
           Slow-order alert last acknowledged by {order.alertAcknowledgedBy.name},{" "}
           {new Date(order.alertAcknowledgedAt).toLocaleString()}
           {OPEN_STATUSES.has(order.status) && order.status !== "ready" && " — still not Ready"}
         </p>
       )}
-      {statusMutation.error && (
-        <p className="mt-2 text-right text-sm text-red-600">{statusMutation.error.message}</p>
-      )}
-      {deleteMutation.error && (
-        <p className="mt-2 text-right text-sm text-red-600">{deleteMutation.error.message}</p>
-      )}
+      <ErrorMessage error={statusMutation.error} className="mt-2 text-right" />
+      <ErrorMessage error={deleteMutation.error} className="mt-2 text-right" />
 
-      <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-medium text-slate-700">Collaborators</h2>
+      <DarkCard className="mt-5">
+        <h2 className="text-sm font-medium text-zinc-100">Collaborators</h2>
         <div className="mt-2 flex flex-wrap gap-2">
           {order.collaborators.length === 0 && (
-            <span className="text-sm text-slate-400">No collaborators yet.</span>
+            <span className="text-sm text-zinc-500">No collaborators yet.</span>
           )}
           {order.collaborators.map((collaborator) => (
-            <span
-              key={collaborator.waiterId}
-              className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"
-            >
+            <Badge key={collaborator.waiterId} tone="slate" className="normal-case">
               {collaborator.waiter.name}
-            </span>
+            </Badge>
           ))}
         </div>
 
         {canManageCollaborators && (
           <form onSubmit={handleAddCollaborator} className="mt-3 flex flex-wrap items-end gap-2">
-            <div className="min-w-[10rem] flex-1">
-              <label className="block text-sm font-medium text-slate-700">Add collaborator</label>
-              <select
-                value={collaboratorId}
-                onChange={(e) => setCollaboratorId(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              >
-                <option value="">Select a waiter</option>
-                {waiterData?.users
-                  .filter(
-                    (waiter) =>
-                      waiter.id !== order.primaryWaiterId &&
-                      !order.collaborators.some((c) => c.waiterId === waiter.id)
-                  )
-                  .map((waiter) => (
-                    <option key={waiter.id} value={waiter.id}>
-                      {waiter.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
-            <button
-              type="submit"
-              disabled={!collaboratorId || addCollaboratorMutation.isPending}
-              className="flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-50"
+            <Select
+              label="Add collaborator"
+              labelClassName="text-zinc-300"
+              value={collaboratorId}
+              onChange={(e) => setCollaboratorId(e.target.value)}
+              containerClassName="min-w-[10rem] flex-1"
             >
+              <option value="">Select a waiter</option>
+              {waiterData?.users
+                .filter(
+                  (waiter) =>
+                    waiter.id !== order.primaryWaiterId &&
+                    !order.collaborators.some((c) => c.waiterId === waiter.id)
+                )
+                .map((waiter) => (
+                  <option key={waiter.id} value={waiter.id}>
+                    {waiter.name}
+                  </option>
+                ))}
+            </Select>
+            <Button type="submit" disabled={!collaboratorId} loading={addCollaboratorMutation.isPending}>
               <UserPlusIcon width="14" height="14" />
               Add
-            </button>
+            </Button>
           </form>
         )}
-        {addCollaboratorMutation.error && (
-          <p className="mt-2 text-sm text-red-600">{addCollaboratorMutation.error.message}</p>
-        )}
-      </div>
+        <ErrorMessage error={addCollaboratorMutation.error} className="mt-2" />
+      </DarkCard>
 
-      <div className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <DarkPanelCard className="mt-5">
         <div className="overflow-x-auto">
         <table className="w-full min-w-[640px] text-left text-sm">
-          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+          <thead className="bg-white/5 text-xs uppercase tracking-wide text-zinc-400">
             <tr>
               <th className="px-5 py-3 font-medium">Item</th>
               <th className="px-5 py-3 font-medium">Qty</th>
@@ -354,21 +352,21 @@ export function OrderDetailPage() {
               <th className="px-5 py-3 font-medium">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-white/5">
             {order.lines.map((line) => (
               <tr
                 key={line.id}
-                className={`transition-colors hover:bg-slate-50 ${line.status === "void" ? "opacity-50" : ""}`}
+                className={`transition-opacity duration-300 hover:bg-white/5 ${line.status === "void" ? "opacity-50" : ""}`}
               >
-                <td className="px-5 py-3 font-medium text-slate-900">{line.menuItem.name}</td>
-                <td className="px-5 py-3 text-slate-600">{line.quantity}</td>
-                <td className="px-5 py-3 text-slate-600">{formatCurrency(line.unitPrice)}</td>
+                <td className="px-5 py-3 font-medium text-white">{line.menuItem.name}</td>
+                <td className="px-5 py-3 text-white">{line.quantity}</td>
+                <td className="px-5 py-3 text-white">{formatCurrency(line.unitPrice)}</td>
                 <td className="px-5 py-3">
                   <StatusBadge status={line.status} />
                 </td>
-                <td className="px-5 py-3 text-slate-500">
+                <td className="px-5 py-3 text-white">
                   {line.status === "void" ? (
-                    <span className="italic text-red-600">Voided: {line.voidReason}</span>
+                    <span className="italic text-red-400">Voided: {line.voidReason}</span>
                   ) : (
                     line.specialInstructions || "—"
                   )}
@@ -377,163 +375,142 @@ export function OrderDetailPage() {
                   {line.status === "active" &&
                     isOpen &&
                     (voidingLineId === line.id ? (
-                      <form onSubmit={handleVoidSubmit} className="flex items-center gap-2">
+                      <form onSubmit={handleVoidSubmit} className="flex items-center gap-2 animate-scale-in">
                         <input
                           autoFocus
                           value={voidReason}
                           onChange={(e) => setVoidReason(e.target.value)}
                           placeholder="Reason"
                           required
-                          className="w-32 rounded-md border border-slate-300 px-2 py-1 text-xs focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500"
+                          className="w-32 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-900 transition-colors focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500"
                         />
-                        <button
-                          type="submit"
-                          disabled={voidMutation.isPending || !voidReason.trim()}
-                          className="rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
-                        >
+                        <Button type="submit" size="sm" variant="danger" disabled={!voidReason.trim()} loading={voidMutation.isPending}>
                           Void
-                        </button>
+                        </Button>
                         <button
                           type="button"
                           onClick={() => {
                             setVoidingLineId(null);
                             setVoidReason("");
                           }}
-                          className="text-xs text-slate-500 hover:text-slate-700"
+                          className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
                         >
                           Cancel
                         </button>
                       </form>
                     ) : (
-                      <button
+                      <Button
+                        variant="secondaryDark"
+                        size="sm"
+                        className="hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-300"
                         onClick={() => {
                           setVoidingLineId(line.id);
                           setVoidReason("");
                         }}
-                        className="rounded-md border border-slate-300 px-2.5 py-1 text-xs text-slate-600 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-700"
                       >
                         Void
-                      </button>
+                      </Button>
                     ))}
                 </td>
               </tr>
             ))}
             {order.lines.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-5 py-10 text-center text-slate-400">
-                  No items on this order yet — add one below.
+                <td colSpan={6}>
+                  <DarkEmptyState title="No items on this order yet — add one below." />
                 </td>
               </tr>
             )}
           </tbody>
         </table>
         </div>
-        <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-5 py-3">
-          <span className="text-sm font-medium text-slate-500">Total</span>
-          <span className="text-lg font-semibold text-slate-900">{formatCurrency(total)}</span>
+        <div className="flex items-center justify-between border-t border-white/10 bg-white/5 px-5 py-3">
+          <span className="text-sm font-medium text-white">Total</span>
+          <span className="text-lg font-semibold text-white">{formatCurrency(total)}</span>
         </div>
-      </div>
-      {voidMutation.error && <p className="mt-2 text-sm text-red-600">{voidMutation.error.message}</p>}
+      </DarkPanelCard>
+      <ErrorMessage error={voidMutation.error} className="mt-2" />
 
       {menuData && isOpen && (
-        <form
-          onSubmit={handleAddLine}
-          className="mt-6 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-        >
-          <div className="min-w-[10rem] flex-1">
-            <label className="block text-sm font-medium text-slate-700">Menu item</label>
-            <select
-              value={menuItemId}
-              onChange={(e) => setMenuItemId(e.target.value)}
-              required
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            >
-              <option value="" disabled>
-                Select an item
-              </option>
-              {menuData.menuItems.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name} — {formatCurrency(item.price)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="w-24">
-            <label className="block text-sm font-medium text-slate-700">Qty</label>
-            <input
-              type="number"
-              min="1"
-              step="1"
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-              required
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
-          <div className="min-w-[10rem] flex-1">
-            <label className="block text-sm font-medium text-slate-700">Instructions</label>
-            <input
-              value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              placeholder="optional"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={addLineMutation.isPending}
-            className="flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-50"
+        <DarkCard as="form" onSubmit={handleAddLine} className="mt-6 flex flex-wrap items-end gap-3">
+          <Select
+            label="Menu item"
+            labelClassName="text-zinc-300"
+            value={menuItemId}
+            onChange={(e) => setMenuItemId(e.target.value)}
+            required
+            containerClassName="min-w-[10rem] flex-1"
           >
+            <option value="" disabled>
+              Select an item
+            </option>
+            {menuData.menuItems.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name} — {formatCurrency(item.price)}
+              </option>
+            ))}
+          </Select>
+          <Input
+            label="Qty"
+            labelClassName="text-zinc-300"
+            type="number"
+            min="1"
+            step="1"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            required
+            containerClassName="w-24"
+          />
+          <Input
+            label="Instructions"
+            labelClassName="text-zinc-300"
+            value={instructions}
+            onChange={(e) => setInstructions(e.target.value)}
+            placeholder="optional"
+            containerClassName="min-w-[10rem] flex-1"
+          />
+          <Button type="submit" loading={addLineMutation.isPending}>
             <PlusIcon />
             Add to order
-          </button>
-        </form>
+          </Button>
+        </DarkCard>
       )}
       {!isOpen && (
-        <p className="mt-6 text-sm text-slate-400">
+        <p className="mt-6 text-sm text-zinc-500">
           This order is {order.status} — no further changes can be made to it.
         </p>
       )}
-      {addLineMutation.error && (
-        <p className="mt-2 text-sm text-red-600">{addLineMutation.error.message}</p>
-      )}
+      <ErrorMessage error={addLineMutation.error} className="mt-2" />
 
-      <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-medium text-slate-700">Timeline</h2>
-        <div className="mt-2 divide-y divide-slate-100">
+      <DarkCard className="mt-6">
+        <h2 className="text-sm font-medium text-zinc-100">Timeline</h2>
+        <div className="mt-2 divide-y divide-white/5">
           {timelineData?.events.map((event) => (
             <div key={event.id} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 py-2">
-              <p className="text-sm text-slate-700">{describeEvent(event)}</p>
-              <span className="text-xs text-slate-400">{new Date(event.createdAt).toLocaleString()}</span>
+              <p className="text-sm text-zinc-300">{describeEvent(event)}</p>
+              <span className="text-xs text-zinc-500">{new Date(event.createdAt).toLocaleString()}</span>
             </div>
           ))}
           {timelineData && timelineData.events.length === 0 && (
-            <p className="py-4 text-center text-sm text-slate-400">No activity recorded yet.</p>
+            <DarkEmptyState title="No activity recorded yet." className="py-4" />
           )}
         </div>
 
         <form onSubmit={handleAddNote} className="mt-3 flex flex-wrap items-end gap-2">
-          <div className="min-w-[12rem] flex-1">
-            <label className="block text-sm font-medium text-slate-700">Add a note</label>
-            <input
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-              placeholder="e.g. Guest asked for less spice"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={!noteText.trim() || addNoteMutation.isPending}
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {addNoteMutation.isPending ? "Adding…" : "Add note"}
-          </button>
+          <Input
+            label="Add a note"
+            labelClassName="text-zinc-300"
+            value={noteText}
+            onChange={(e) => setNoteText(e.target.value)}
+            placeholder="e.g. Guest asked for less spice"
+            containerClassName="min-w-[12rem] flex-1"
+          />
+          <Button type="submit" disabled={!noteText.trim()} loading={addNoteMutation.isPending}>
+            Add note
+          </Button>
         </form>
-        {addNoteMutation.error && (
-          <p className="mt-2 text-sm text-red-600">{addNoteMutation.error.message}</p>
-        )}
-      </div>
+        <ErrorMessage error={addNoteMutation.error} className="mt-2" />
+      </DarkCard>
     </div>
   );
 }

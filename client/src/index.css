@@ -1,1 +1,140 @@
 @import "tailwindcss";
+
+/*
+ * Design system reference
+ * ------------------------
+ * This project uses Tailwind v4's CSS-first config, so there is no tailwind.config.js — tokens
+ * and keyframes live here instead.
+ *
+ * Typography — "Plus Jakarta Sans" (loaded in index.html) everywhere, via --font-sans below.
+ *   Page title      text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900
+ *   Page subtitle   text-sm text-zinc-500
+ *   Section header  text-sm font-semibold text-zinc-800
+ *   Body            text-sm text-zinc-700/600
+ *   Label           text-sm font-medium text-zinc-700
+ *   Caption/meta    text-xs text-zinc-400/500
+ *
+ * Color — one accent, used deliberately, not a rainbow of gradients.
+ *   Brand accent   — violet-600 -> indigo-600 (`.brand-gradient` / `.brand-gradient-text`). This
+ *     single gradient is the ONLY decorative gradient in the app: logo, active nav, primary CTAs,
+ *     icon chips, hero banners. Every "accent" surface reuses this exact pair, never a new hue.
+ *   Page background — near-black zinc-950 (html/body/#root, AppShell's root wrapper, the nav bar),
+ *     white/zinc-100 text, zinc-400/500 muted text — one dark surface everywhere, so there's no
+ *     white showing at the edges, on short pages, or on overscroll. The footer is one step
+ *     lighter, zinc-900 with a border-white/10 top edge, so it reads as its own band instead of
+ *     fusing with whatever dark panel sits directly above it (e.g. the Dashboard). Individual
+ *     pages that haven't been restyled dark yet still render their own light `Card`s on top of
+ *     this dark surface until their turn comes.
+ *   Status/semantic — one color per order status, functional (not decorative), shared by every
+ *     badge in the app (order status, line status, menu availability, alert severity). Defined
+ *     once in lib/statusStyles.js:
+ *       placed     sky      accepted   amber      preparing  orange
+ *       ready      violet   served     emerald    cancelled  red
+ *     "active"/"available" reuse emerald (positive), "void"/"unavailable" reuse slate (neutral).
+ *
+ * Spacing / shape rhythm
+ *   Card radius        rounded-2xl / rounded-3xl for hero-weight cards
+ *   Card padding        p-5 / p-6
+ *   Section gap         mt-6 / mt-8 between major page sections
+ *   Shadows             soft, single-hue tinted glows (shadow-indigo-500/10) instead of flat gray
+ *
+ * Motion — used with intent: entrances, hover lift, status transitions, a pulse only on things
+ * that genuinely need attention (unread alert count). Nothing loops on data someone is reading.
+ * The one exception is purely decorative: components/ui/BackgroundRippleEffect, a click-to-ripple
+ * cell grid that lives behind everything in AppShell's root wrapper (the page/body background).
+ */
+
+/* Matches AppShell's root wrapper (bg-zinc-950) — without this, the initial paint before React
+   mounts, and any overscroll/bounce past the page edge on mobile, shows the browser's default
+   white instead of the app's dark surface. */
+html,
+body {
+  min-height: 100%;
+}
+
+body,
+#root {
+  min-height: 100vh;
+  background-color: #18181b;
+}
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --animate-fade-in: fade-in 0.35s ease-out both;
+  --animate-fade-in-fast: fade-in 0.2s ease-out both;
+  --animate-scale-in: scale-in 0.15s ease-out both;
+  --animate-pulse-ring: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-cell-ripple: cell-ripple var(--duration, 200ms) ease-out none 1 var(--delay, 0ms);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pulse-ring {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(244, 63, 94, 0);
+  }
+}
+
+@keyframes cell-ripple {
+  0% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0.4;
+  }
+}
+
+/* Brand identity — the one gradient every accent surface in the app shares. Two stops only. */
+.brand-gradient {
+  background-image: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
+}
+
+.brand-gradient-text {
+  background-image: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Decorative ambient glow used behind dark chrome (nav/footer) and hero banners — one hue,
+   low opacity, purely cosmetic (pointer-events-none). */
+.bg-mesh-glow {
+  background-image: radial-gradient(560px circle at 15% 0%, rgba(124, 58, 237, 0.25), transparent 60%),
+    radial-gradient(480px circle at 85% 100%, rgba(79, 70, 229, 0.18), transparent 60%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

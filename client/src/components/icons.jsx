@@ -122,3 +122,40 @@ export function TrashIcon(props) {
     </svg>
   );
 }
+
+export function TrendingUpIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" {...BASE} {...props}>
+      <path d="M3 17l5.5-5.5 4 4L21 7" />
+      <path d="M14 7h7v7" />
+    </svg>
+  );
+}
+
+export function UsersIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" {...BASE} {...props}>
+      <path d="M16 19v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 17.5V19" />
+      <circle cx="9" cy="8" r="3.25" />
+      <path d="M17.5 19v-1.5a3.5 3.5 0 0 0-2.3-3.29M14 4.3a3.25 3.25 0 0 1 0 6.2" />
+    </svg>
+  );
+}
+
+export function StarIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" {...BASE} {...props}>
+      <path d="m12 3 2.6 5.6 6.1.7-4.6 4.2 1.2 6-5.3-3-5.3 3 1.2-6-4.6-4.2 6.1-.7Z" />
+    </svg>
+  );
+}
+
+export function LayersIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" {...BASE} {...props}>
+      <path d="m12 3 8.5 4.5L12 12 3.5 7.5Z" />
+      <path d="m3.5 12 8.5 4.5 8.5-4.5" />
+      <path d="m3.5 16.5 8.5 4.5 8.5-4.5" />
+    </svg>
+  );
+}

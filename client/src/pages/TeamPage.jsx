@@ -4,12 +4,15 @@ import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { isManagerOrAbove, isAdmin as isAdminRole, canManage } from "../lib/roles";
 import { PlusIcon, CheckIcon, ArchiveIcon, RestoreIcon } from "../components/icons";
+import { PageHeader } from "../components/ui/PageHeader";
+import { DarkCard, DarkPanelCard } from "../components/ui/DarkCard";
+import { Button } from "../components/ui/Button";
+import { Input, Select } from "../components/ui/DarkInput";
+import { Badge } from "../components/ui/Badge";
+import { ErrorMessage } from "../components/ui/ErrorMessage";
+import { TableSkeleton } from "../components/ui/Skeleton";
 
-const ROLE_BADGE_CLASS = {
-  admin: "bg-violet-50 text-violet-700 ring-violet-600/20",
-  manager: "bg-indigo-50 text-indigo-700 ring-indigo-600/20",
-  waiter: "bg-slate-100 text-slate-600 ring-slate-400/20",
-};
+const ROLE_TONE = { admin: "violet", manager: "indigo", waiter: "slate" };
 
 export function TeamPage() {
   const { user } = useAuth();
@@ -110,52 +113,50 @@ export function TeamPage() {
   if (!isManager) {
     return (
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Team</h1>
-        <p className="mt-2 text-sm text-slate-500">Only managers can view the team list.</p>
+        <PageHeader title="Team" subtitle="Only managers can view the team list." />
       </div>
     );
   }
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Team</h1>
-          <p className="mt-0.5 text-sm text-slate-500">
-            {isAdmin
-              ? "Add waiter or manager accounts, and change anyone's role."
-              : "Add waiter accounts for new hires — only an admin can create a manager account."}
-          </p>
-        </div>
-        <label className="flex items-center gap-2 text-sm text-slate-500">
-          <input
-            type="checkbox"
-            checked={showDeactivated}
-            onChange={(e) => setShowDeactivated(e.target.checked)}
-            className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-          />
-          Show deactivated
-        </label>
-      </div>
+      <PageHeader
+        title="Team"
+        subtitle={
+          isAdmin
+            ? "Add waiter or manager accounts, and change anyone's role."
+            : "Add waiter accounts for new hires — only an admin can create a manager account."
+        }
+        action={
+          <label className="flex items-center gap-2 text-sm text-zinc-400">
+            <input
+              type="checkbox"
+              checked={showDeactivated}
+              onChange={(e) => setShowDeactivated(e.target.checked)}
+              className="h-4 w-4 rounded border-white/20 bg-transparent text-indigo-500 focus:ring-indigo-500"
+            />
+            Show deactivated
+          </label>
+        }
+      />
 
-      {isLoading && <p className="mt-6 text-sm text-slate-500">Loading…</p>}
-      {error && <p className="mt-6 text-sm text-red-600">{error.message}</p>}
-      {roleMutation.error && <p className="mt-2 text-sm text-red-600">{roleMutation.error.message}</p>}
-      {resetPasswordMutation.error && (
-        <p className="mt-2 text-sm text-red-600">{resetPasswordMutation.error.message}</p>
-      )}
-      {deactivateMutation.error && (
-        <p className="mt-2 text-sm text-red-600">{deactivateMutation.error.message}</p>
-      )}
-      {reactivateMutation.error && (
-        <p className="mt-2 text-sm text-red-600">{reactivateMutation.error.message}</p>
+      <ErrorMessage error={error} className="mt-6" />
+      <ErrorMessage error={roleMutation.error} className="mt-2" />
+      <ErrorMessage error={resetPasswordMutation.error} className="mt-2" />
+      <ErrorMessage error={deactivateMutation.error} className="mt-2" />
+      <ErrorMessage error={reactivateMutation.error} className="mt-2" />
+
+      {isLoading && (
+        <DarkPanelCard className="mt-5">
+          <TableSkeleton cols={4} />
+        </DarkPanelCard>
       )}
 
       {data && (
-        <div className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <DarkPanelCard className="mt-5 animate-fade-in">
           <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <thead className="bg-white/5 text-xs uppercase tracking-wide text-zinc-400">
               <tr>
                 <th className="px-5 py-3 font-medium">Name</th>
                 <th className="px-5 py-3 font-medium">Email</th>
@@ -163,48 +164,48 @@ export function TeamPage() {
                 <th className="px-5 py-3 font-medium">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-white/5">
               {data.users.map((person) => (
                 <tr
                   key={person.id}
-                  className={`transition-colors hover:bg-slate-50 ${person.isActive ? "" : "opacity-50"}`}
+                  className={`transition-colors hover:bg-white/5 ${person.isActive ? "" : "opacity-50"}`}
                 >
-                  <td className="px-5 py-3 font-medium text-slate-900">
+                  <td className="px-5 py-3 font-medium text-white">
                     {person.name}
-                    {person.id === user.id && <span className="ml-1.5 text-xs text-slate-400">(you)</span>}
-                    {!person.isActive && <span className="ml-1.5 text-xs text-slate-400">(deactivated)</span>}
+                    {person.id === user.id && <span className="ml-1.5 text-xs text-zinc-500">(you)</span>}
+                    {!person.isActive && <span className="ml-1.5 text-xs text-zinc-500">(deactivated)</span>}
                   </td>
-                  <td className="px-5 py-3 text-slate-600">{person.email ?? "—"}</td>
+                  <td className="px-5 py-3 text-zinc-400">{person.email ?? "—"}</td>
                   <td className="px-5 py-3">
-                    <span
-                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ring-1 ring-inset ${ROLE_BADGE_CLASS[person.role]}`}
-                    >
-                      {person.role}
-                    </span>
+                    <Badge tone={ROLE_TONE[person.role]}>{person.role}</Badge>
                   </td>
                   <td className="px-5 py-3">
                     <div className="flex flex-wrap items-center gap-2">
                       {isAdmin && person.isActive && person.role === "waiter" && (
-                        <button
+                        <Button
+                          variant="secondaryDark"
+                          size="sm"
+                          className="hover:border-indigo-400/40 hover:bg-indigo-500/10 hover:text-indigo-300"
                           onClick={() => roleMutation.mutate({ id: person.id, role: "manager" })}
-                          disabled={roleMutation.isPending}
-                          className="rounded-md border border-slate-300 px-2.5 py-1 text-xs text-slate-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-50"
+                          loading={roleMutation.isPending}
                         >
                           Promote to manager
-                        </button>
+                        </Button>
                       )}
                       {isAdmin && person.isActive && person.role === "manager" && (
-                        <button
+                        <Button
+                          variant="secondaryDark"
+                          size="sm"
+                          className="hover:border-amber-400/40 hover:bg-amber-500/10 hover:text-amber-300"
                           onClick={() => roleMutation.mutate({ id: person.id, role: "waiter" })}
-                          disabled={roleMutation.isPending}
-                          className="rounded-md border border-slate-300 px-2.5 py-1 text-xs text-slate-700 transition-colors hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700 disabled:opacity-50"
+                          loading={roleMutation.isPending}
                         >
                           Demote to waiter
-                        </button>
+                        </Button>
                       )}
                       {canManage(user.role, person.role) && person.isActive &&
                         (resettingId === person.id ? (
-                          <form onSubmit={(e) => handleResetSubmit(e, person.id)} className="flex items-center gap-1.5">
+                          <form onSubmit={(e) => handleResetSubmit(e, person.id)} className="flex items-center gap-1.5 animate-scale-in">
                             <input
                               autoFocus
                               type="text"
@@ -213,71 +214,69 @@ export function TeamPage() {
                               placeholder="new password"
                               minLength={8}
                               required
-                              className="w-32 rounded-md border border-slate-300 px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                              className="w-32 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-900 transition-colors focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                             />
-                            <button
-                              type="submit"
-                              disabled={resetPasswordMutation.isPending}
-                              className="rounded-md bg-indigo-600 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
-                            >
+                            <Button type="submit" size="sm" loading={resetPasswordMutation.isPending}>
                               Set
-                            </button>
+                            </Button>
                             <button
                               type="button"
                               onClick={() => {
                                 setResettingId(null);
                                 setNewPassword("");
                               }}
-                              className="text-xs text-slate-500 hover:text-slate-700"
+                              className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
                             >
                               Cancel
                             </button>
                           </form>
                         ) : (
-                          <button
-                            onClick={() => setResettingId(person.id)}
-                            className="rounded-md border border-slate-300 px-2.5 py-1 text-xs text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-50"
-                          >
+                          <Button variant="secondaryDark" size="sm" onClick={() => setResettingId(person.id)}>
                             Reset password
-                          </button>
+                          </Button>
                         ))}
                       {canManage(user.role, person.role) && person.id !== user.id && (
                         person.isActive ? (
                           confirmingDeactivateId === person.id ? (
-                            <div className="flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs">
-                              <span className="text-red-700">Deactivate {person.name}?</span>
-                              <button
+                            <div className="flex items-center gap-1.5 rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1 text-xs animate-scale-in">
+                              <span className="text-red-300">Deactivate {person.name}?</span>
+                              <Button
+                                size="sm"
+                                variant="danger"
                                 onClick={() => deactivateMutation.mutate(person.id)}
-                                disabled={deactivateMutation.isPending}
-                                className="rounded-md bg-red-600 px-2 py-0.5 font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+                                loading={deactivateMutation.isPending}
                               >
-                                {deactivateMutation.isPending ? "Deactivating…" : "Yes, deactivate"}
-                              </button>
+                                Yes, deactivate
+                              </Button>
                               <button
                                 onClick={() => setConfirmingDeactivateId(null)}
-                                className="px-1 text-slate-500 hover:text-slate-700"
+                                className="px-1 text-zinc-400 transition-colors hover:text-zinc-200"
                               >
                                 Never mind
                               </button>
                             </div>
                           ) : (
-                            <button
+                            <Button
+                              variant="secondaryDark"
+                              size="sm"
+                              className="hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-300"
                               onClick={() => setConfirmingDeactivateId(person.id)}
-                              className="flex items-center gap-1.5 rounded-md border border-slate-300 px-2.5 py-1 text-xs text-slate-700 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-700"
                             >
                               <ArchiveIcon width="14" height="14" />
                               Deactivate
-                            </button>
+                            </Button>
                           )
                         ) : (
-                          <button
+                          <Button
+                            variant="secondaryDark"
+                            size="sm"
+                            className="hover:border-emerald-400/40 hover:bg-emerald-500/10 hover:text-emerald-300"
                             onClick={() => reactivateMutation.mutate(person.id)}
-                            disabled={reactivateMutation.isPending}
-                            className="flex items-center gap-1.5 rounded-md border border-slate-300 px-2.5 py-1 text-xs text-slate-700 transition-colors hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50"
+                            loading={reactivateMutation.isPending}
                           >
                             <RestoreIcon width="14" height="14" />
                             Reactivate
-                          </button>
+                          </Button>
                         )
                       )}
                     </div>
@@ -287,41 +286,41 @@ export function TeamPage() {
             </tbody>
           </table>
           </div>
-        </div>
+        </DarkPanelCard>
       )}
 
       {justCreated && (
-        <div className="mt-6 max-w-2xl rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+        <DarkCard className="mt-6 max-w-2xl border-emerald-400/30 bg-emerald-500/10 animate-fade-in-fast">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-medium text-emerald-900">Account created — copy this now</h2>
+            <h2 className="text-sm font-medium text-emerald-200">Account created — copy this now</h2>
             <button
               onClick={() => setJustCreated(null)}
-              className="text-xs text-emerald-700 hover:text-emerald-900"
+              className="text-xs text-emerald-300 transition-colors hover:text-emerald-100"
             >
               Dismiss
             </button>
           </div>
-          <p className="mt-1 text-xs text-emerald-700">
+          <p className="mt-1 text-xs text-emerald-300/80">
             This password won't be shown again. Share it with {justCreated.name} directly, then have
             them log in and it's safe to lose track of it — if it does get lost before you share it,
             just reset their password again from the list above.
           </p>
           <dl className="mt-3 space-y-1 text-sm">
             <div className="flex gap-2">
-              <dt className="w-16 shrink-0 text-emerald-700">Name</dt>
-              <dd className="text-emerald-950">{justCreated.name}</dd>
+              <dt className="w-16 shrink-0 text-emerald-300">Name</dt>
+              <dd className="text-emerald-50">{justCreated.name}</dd>
             </div>
             <div className="flex gap-2">
-              <dt className="w-16 shrink-0 text-emerald-700">Email</dt>
-              <dd className="text-emerald-950">{justCreated.email}</dd>
+              <dt className="w-16 shrink-0 text-emerald-300">Email</dt>
+              <dd className="text-emerald-50">{justCreated.email}</dd>
             </div>
             <div className="flex items-center gap-2">
-              <dt className="w-16 shrink-0 text-emerald-700">Password</dt>
-              <dd className="font-mono text-emerald-950">{justCreated.password}</dd>
+              <dt className="w-16 shrink-0 text-emerald-300">Password</dt>
+              <dd className="font-mono text-emerald-50">{justCreated.password}</dd>
               <button
                 type="button"
                 onClick={handleCopyPassword}
-                className="flex items-center gap-1 rounded-md border border-emerald-300 bg-white px-2 py-0.5 text-xs text-emerald-700 transition-colors hover:bg-emerald-100"
+                className="flex items-center gap-1 rounded-md border border-emerald-400/30 bg-white/5 px-2 py-0.5 text-xs text-emerald-200 transition-colors hover:bg-emerald-500/20"
               >
                 {copied ? (
                   <>
@@ -334,73 +333,54 @@ export function TeamPage() {
               </button>
             </div>
           </dl>
-        </div>
+        </DarkCard>
       )}
 
-      <form
-        onSubmit={handleCreate}
-        className="mt-6 flex max-w-2xl flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-      >
-        <div className="min-w-[9rem] flex-1">
-          <label className="block text-sm font-medium text-slate-700">Name</label>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
-        </div>
-        <div className="min-w-[11rem] flex-1">
-          <label className="block text-sm font-medium text-slate-700">Email</label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
-        </div>
-        <div className="min-w-[9rem] flex-1">
-          <label className="block text-sm font-medium text-slate-700">Initial password</label>
-          <input
-            type="text"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            minLength={8}
-            placeholder="share this with them"
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
-        </div>
+      <DarkCard as="form" onSubmit={handleCreate} className="mt-6 flex max-w-2xl flex-wrap items-end gap-3">
+        <Input
+          label="Name"
+          labelClassName="text-zinc-300"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+          containerClassName="min-w-[9rem] flex-1"
+        />
+        <Input
+          label="Email"
+          labelClassName="text-zinc-300"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+          containerClassName="min-w-[11rem] flex-1"
+        />
+        <Input
+          label="Initial password"
+          labelClassName="text-zinc-300"
+          type="text"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          minLength={8}
+          placeholder="share this with them"
+          containerClassName="min-w-[9rem] flex-1"
+        />
         <div className="w-full sm:w-36">
-          <label className="block text-sm font-medium text-slate-700">Role</label>
           {isAdmin ? (
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            >
+            <Select label="Role" labelClassName="text-zinc-300" value={role} onChange={(e) => setRole(e.target.value)}>
               <option value="waiter">Waiter</option>
               <option value="manager">Manager</option>
-            </select>
+            </Select>
           ) : (
-            <input
-              disabled
-              value="Waiter"
-              className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500"
-            />
+            <Input label="Role" labelClassName="text-zinc-300" disabled value="Waiter" />
           )}
         </div>
-        <button
-          type="submit"
-          disabled={createMutation.isPending}
-          className="flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-50"
-        >
+        <Button type="submit" loading={createMutation.isPending}>
           <PlusIcon />
           Add account
-        </button>
-      </form>
-      {createMutation.error && <p className="mt-2 text-sm text-red-600">{createMutation.error.message}</p>}
+        </Button>
+      </DarkCard>
+      <ErrorMessage error={createMutation.error} className="mt-2" />
     </div>
   );
 }

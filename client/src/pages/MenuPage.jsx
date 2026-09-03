@@ -5,6 +5,14 @@ import { useAuth } from "../context/AuthContext";
 import { isManagerOrAbove } from "../lib/roles";
 import { formatCurrency } from "../lib/format";
 import { PlusIcon, ArchiveIcon, RestoreIcon, CheckIcon, XIcon } from "../components/icons";
+import { PageHeader } from "../components/ui/PageHeader";
+import { DarkCard, DarkPanelCard, DarkEmptyState } from "../components/ui/DarkCard";
+import { Button } from "../components/ui/Button";
+import { Input } from "../components/ui/Input";
+import { Select } from "../components/ui/Select";
+import { Badge } from "../components/ui/Badge";
+import { ErrorMessage } from "../components/ui/ErrorMessage";
+import { TableSkeleton } from "../components/ui/Skeleton";
 
 export function MenuPage() {
   const { user } = useAuth();
@@ -99,34 +107,37 @@ export function MenuPage() {
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Menu</h1>
-          <p className="mt-0.5 text-sm text-slate-500">
-            {isManager ? "Manage what's on offer today." : "What the kitchen is serving right now."}
-          </p>
-        </div>
-        {isManager && (
-          <label className="flex items-center gap-2 text-sm text-slate-500">
-            <input
-              type="checkbox"
-              checked={showArchived}
-              onChange={(e) => setShowArchived(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-            />
-            Show archived
-          </label>
-        )}
-      </div>
+      <PageHeader
+        title="Menu"
+        subtitle={isManager ? "Manage what's on offer today." : "What the kitchen is serving right now."}
+        action={
+          isManager && (
+            <label className="flex items-center gap-2 text-sm text-zinc-400">
+              <input
+                type="checkbox"
+                checked={showArchived}
+                onChange={(e) => setShowArchived(e.target.checked)}
+                className="h-4 w-4 rounded border-white/20 bg-transparent text-indigo-500 focus:ring-indigo-500"
+              />
+              Show archived
+            </label>
+          )
+        }
+      />
 
-      {isLoading && <p className="mt-6 text-sm text-slate-500">Loading…</p>}
-      {error && <p className="mt-6 text-sm text-red-600">{error.message}</p>}
+      {error && <ErrorMessage error={error} className="mt-6" />}
+
+      {isLoading && (
+        <DarkPanelCard className="mt-5">
+          <TableSkeleton cols={isManager ? 4 : 2} />
+        </DarkPanelCard>
+      )}
 
       {data && (
-        <div className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <DarkPanelCard className="mt-5 animate-fade-in">
           <div className="overflow-x-auto">
           <table className="w-full min-w-[480px] text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <thead className="bg-white/5 text-xs uppercase tracking-wide text-zinc-400">
               <tr>
                 {isManager && <th className="w-8 px-5 py-3"></th>}
                 <th className="px-5 py-3 font-medium">Name</th>
@@ -135,11 +146,11 @@ export function MenuPage() {
                 {isManager && <th className="px-5 py-3 font-medium">Actions</th>}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-white/5">
               {data.menuItems.map((item) => (
                 <tr
                   key={item.id}
-                  className={`transition-colors hover:bg-slate-50 ${item.isArchived ? "opacity-50" : ""}`}
+                  className={`transition-colors hover:bg-white/5 ${item.isArchived ? "opacity-50" : ""}`}
                 >
                   {isManager && (
                     <td className="px-5 py-3">
@@ -148,55 +159,46 @@ export function MenuPage() {
                           type="checkbox"
                           checked={selectedIds.has(item.id)}
                           onChange={() => toggleSelected(item.id)}
-                          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                          className="h-4 w-4 rounded border-white/20 bg-transparent text-indigo-500 focus:ring-indigo-500"
                         />
                       )}
                     </td>
                   )}
-                  <td className="px-5 py-3 font-medium text-slate-900">{item.name}</td>
-                  <td className="px-5 py-3 text-slate-600">{formatCurrency(item.price)}</td>
+                  <td className="px-5 py-3 font-medium text-white">{item.name}</td>
+                  <td className="px-5 py-3 text-zinc-400">{formatCurrency(item.price)}</td>
                   <td className="px-5 py-3">
                     {isManager && !item.isArchived ? (
-                      <button
+                      <Badge
+                        as="button"
                         onClick={() => toggleAvailable(item)}
-                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset transition-colors ${
-                          item.isAvailable
-                            ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20 hover:bg-emerald-100"
-                            : "bg-slate-100 text-slate-500 ring-slate-400/20 hover:bg-slate-200"
-                        }`}
+                        tone={item.isAvailable ? "emerald" : "slate"}
+                        className="cursor-pointer hover:brightness-95"
                       >
                         {item.isAvailable ? "Available" : "Unavailable"}
-                      </button>
+                      </Badge>
                     ) : (
-                      <span
-                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${
-                          item.isAvailable
-                            ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20"
-                            : "bg-slate-100 text-slate-500 ring-slate-400/20"
-                        }`}
-                      >
+                      <Badge tone={item.isAvailable ? "emerald" : "slate"}>
                         {item.isAvailable ? "Available" : "Unavailable"}
-                      </span>
+                      </Badge>
                     )}
                   </td>
                   {isManager && (
                     <td className="px-5 py-3">
                       {item.isArchived ? (
-                        <button
-                          onClick={() => unarchiveMutation.mutate(item.id)}
-                          className="flex items-center gap-1.5 rounded-md border border-slate-300 px-2.5 py-1 text-xs text-slate-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
-                        >
+                        <Button variant="secondaryDark" size="sm" onClick={() => unarchiveMutation.mutate(item.id)}>
                           <RestoreIcon width="14" height="14" />
                           Restore
-                        </button>
+                        </Button>
                       ) : (
-                        <button
+                        <Button
+                          variant="secondaryDark"
+                          size="sm"
+                          className="hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-300"
                           onClick={() => archiveMutation.mutate(item.id)}
-                          className="flex items-center gap-1.5 rounded-md border border-slate-300 px-2.5 py-1 text-xs text-slate-700 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-700"
                         >
                           <ArchiveIcon width="14" height="14" />
                           Archive
-                        </button>
+                        </Button>
                       )}
                     </td>
                   )}
@@ -204,72 +206,70 @@ export function MenuPage() {
               ))}
               {data.menuItems.length === 0 && (
                 <tr>
-                  <td colSpan={isManager ? 5 : 3} className="px-5 py-10 text-center text-slate-400">
-                    {showArchived ? "No archived items." : "No menu items yet."}
+                  <td colSpan={isManager ? 5 : 3}>
+                    <DarkEmptyState title={showArchived ? "No archived items." : "No menu items yet."} />
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
           </div>
-        </div>
+        </DarkPanelCard>
       )}
 
       {isManager && selectedIds.size > 0 && (
         <form
           onSubmit={handleApplyBulk}
-          className="mt-4 flex flex-wrap items-end gap-3 rounded-xl border border-indigo-200 bg-indigo-50 p-4"
+          className="mt-4 flex flex-wrap items-end gap-3 rounded-3xl border border-indigo-400/20 bg-indigo-500/10 p-4 animate-fade-in-fast"
         >
-          <span className="text-sm font-medium text-indigo-900">
+          <span className="text-sm font-medium text-indigo-200">
             {selectedIds.size} item{selectedIds.size === 1 ? "" : "s"} selected
           </span>
-          <div className="w-full sm:w-32">
-            <label className="block text-sm font-medium text-slate-700">New price (₹)</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={bulkPrice}
-              onChange={(e) => setBulkPrice(e.target.value)}
-              placeholder="unchanged"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
-          <div className="w-full sm:w-40">
-            <label className="block text-sm font-medium text-slate-700">Availability</label>
-            <select
-              value={bulkAvailability}
-              onChange={(e) => setBulkAvailability(e.target.value)}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            >
-              <option value="">Unchanged</option>
-              <option value="true">Mark available</option>
-              <option value="false">Mark unavailable</option>
-            </select>
-          </div>
-          <button
-            type="submit"
-            disabled={bulkMutation.isPending || (bulkPrice.trim() === "" && bulkAvailability === "")}
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-50"
+          <Input
+            label="New price (₹)"
+            labelClassName="text-zinc-300"
+            type="number"
+            step="0.01"
+            min="0"
+            value={bulkPrice}
+            onChange={(e) => setBulkPrice(e.target.value)}
+            placeholder="unchanged"
+            containerClassName="w-full sm:w-32"
+          />
+          <Select
+            label="Availability"
+            labelClassName="text-zinc-300"
+            value={bulkAvailability}
+            onChange={(e) => setBulkAvailability(e.target.value)}
+            containerClassName="w-full sm:w-40"
           >
-            {bulkMutation.isPending ? "Applying…" : "Apply"}
-          </button>
+            <option value="">Unchanged</option>
+            <option value="true">Mark available</option>
+            <option value="false">Mark unavailable</option>
+          </Select>
+          <Button
+            type="submit"
+            loading={bulkMutation.isPending}
+            disabled={bulkPrice.trim() === "" && bulkAvailability === ""}
+          >
+            Apply
+          </Button>
           <button
             type="button"
             onClick={() => setSelectedIds(new Set())}
-            className="text-sm text-indigo-700 hover:underline"
+            className="text-sm text-indigo-300 transition-colors hover:underline"
           >
             Clear selection
           </button>
         </form>
       )}
-      {bulkMutation.error && <p className="mt-2 text-sm text-red-600">{bulkMutation.error.message}</p>}
+      <ErrorMessage error={bulkMutation.error} className="mt-2" />
 
       {bulkResults && (
-        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <DarkCard className="mt-4 animate-fade-in-fast">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-medium text-slate-700">Bulk update results</h2>
-            <button onClick={() => setBulkResults(null)} className="text-sm text-slate-400 hover:text-slate-600">
+            <h2 className="text-sm font-medium text-zinc-100">Bulk update results</h2>
+            <button onClick={() => setBulkResults(null)} className="text-sm text-zinc-500 transition-colors hover:text-zinc-300">
               Dismiss
             </button>
           </div>
@@ -279,63 +279,52 @@ export function MenuPage() {
               return (
                 <li key={result.id} className="flex items-center gap-2">
                   {result.status === "ok" ? (
-                    <CheckIcon width="14" height="14" className="text-emerald-600" />
+                    <CheckIcon width="14" height="14" className="text-emerald-400" />
                   ) : (
-                    <XIcon width="14" height="14" className="text-red-600" />
+                    <XIcon width="14" height="14" className="text-red-400" />
                   )}
-                  <span className="font-medium text-slate-800">{item?.name ?? result.id}</span>
+                  <span className="font-medium text-zinc-100">{item?.name ?? result.id}</span>
                   {result.status === "ok" ? (
-                    <span className="text-emerald-700">updated</span>
+                    <span className="text-emerald-400">updated</span>
                   ) : (
-                    <span className="text-red-600">rejected — {result.reason}</span>
+                    <span className="text-red-400">rejected — {result.reason}</span>
                   )}
                 </li>
               );
             })}
           </ul>
-        </div>
+        </DarkCard>
       )}
 
       {isManager && (
-        <form
-          onSubmit={handleCreate}
-          className="mt-6 flex max-w-lg flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-        >
-          <div className="min-w-[10rem] flex-1">
-            <label className="block text-sm font-medium text-slate-700">Name</label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              placeholder="e.g. Paneer Tikka"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
-          <div className="w-full sm:w-32">
-            <label className="block text-sm font-medium text-slate-700">Price (₹)</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              required
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={createMutation.isPending}
-            className="flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-50"
-          >
+        <DarkCard as="form" onSubmit={handleCreate} className="mt-6 flex max-w-lg flex-wrap items-end gap-3">
+          <Input
+            label="Name"
+            labelClassName="text-zinc-300"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            placeholder="e.g. Paneer Tikka"
+            containerClassName="min-w-[10rem] flex-1"
+          />
+          <Input
+            label="Price (₹)"
+            labelClassName="text-zinc-300"
+            type="number"
+            step="0.01"
+            min="0"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            required
+            containerClassName="w-full sm:w-32"
+          />
+          <Button type="submit" loading={createMutation.isPending}>
             <PlusIcon />
             Add item
-          </button>
-        </form>
+          </Button>
+        </DarkCard>
       )}
-      {createMutation.error && (
-        <p className="mt-2 text-sm text-red-600">{createMutation.error.message}</p>
-      )}
+      <ErrorMessage error={createMutation.error} className="mt-2" />
     </div>
   );
 }

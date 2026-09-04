@@ -1,10 +1,17 @@
 // A hand-rolled reverse proxy to the Render backend, running as a real Vercel Serverless Function.
 //
-// Needed because vercel.json's plain `rewrites` to an external absolute URL only reliably proxy
-// GET/HEAD requests — POST/PATCH/DELETE (login, and literally every mutation in this app) came
-// back as a 405 from Vercel's own edge, never even reaching Render. A real function has no such
-// restriction: it forwards the method, the raw body, and every response header (including
-// multiple Set-Cookie headers, which is what login actually depends on) exactly as received.
+// This is a single, plain function file (not the `[...path].js` dynamic catch-all convention) —
+// that convention turned out not to route correctly on this project (confirmed by testing a plain
+// client/api/health.js function, which worked fine, immediately after `[...path].js` returned a
+// platform-level 404 for every request). Every `/api/*` request instead reaches this one function
+// via an internal rewrite (see client/vercel.json: "/api/(.*)" -> "/api/proxy?path=$1"), which
+// hands the real path through as a query parameter this function reads directly, sidestepping
+// Vercel's dynamic-file-route matching entirely.
+//
+// A plain `rewrites` entry straight to an *external* absolute URL (skipping this function) was
+// tried even earlier and reverted: it only reliably proxies GET/HEAD, so every POST (starting with
+// login) came back a `405` straight from Vercel's edge, never reaching Render. Rewriting to an
+// *internal* path (this function) has no such method restriction.
 //
 // Read via plain `process.env`, not `import.meta.env.VITE_...` — this file runs as a Node.js
 // Serverless Function, a completely different environment from the Vite browser bundle. A
@@ -46,10 +53,13 @@ export default async function handler(req, res) {
     return;
   }
 
-  const pathSegments = Array.isArray(req.query.path) ? req.query.path : [req.query.path].filter(Boolean);
-  const queryIndex = req.url.indexOf("?");
-  const search = queryIndex >= 0 ? req.url.slice(queryIndex) : "";
-  const targetUrl = `${API_ORIGIN}/api/${pathSegments.join("/")}${search}`;
+  // `path` is injected by the vercel.json rewrite ("/api/(.*)" -> "/api/proxy?path=$1") and
+  // carries the real sub-path (e.g. "auth/login"), already URL-decoded by Vercel's query parser.
+  // Everything else in req.query is a real query parameter from the original request (e.g.
+  // "status=served&page=2") and needs to be forwarded as-is, not dropped.
+  const { path: rewrittenPath, ...restQuery } = req.query;
+  const search = new URLSearchParams(restQuery).toString();
+  const targetUrl = `${API_ORIGIN}/api/${rewrittenPath ?? ""}${search ? `?${search}` : ""}`;
 
   const headers = new Headers();
   for (const [key, value] of Object.entries(req.headers)) {

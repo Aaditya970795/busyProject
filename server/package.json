@@ -7,9 +7,13 @@
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
     "migrate": "prisma migrate dev",
-    "migrate:deploy": "prisma migrate deploy",
+    "migrate:deploy": "prisma generate && prisma migrate deploy",
     "generate": "prisma generate",
+    "postinstall": "prisma generate",
     "reset-demo-data": "node prisma/reset-and-reseed.js"
+  },
+  "engines": {
+    "node": ">=23.6.0"
   },
   "keywords": [],
   "author": "",

@@ -755,3 +755,17 @@ waiter can no longer make an order's history disappear from the website, ever, a
 
 ---
 
+77. `migrate:deploy` now runs `prisma generate` first, every time
+
+First real Render deploy failed at boot with `ERR_MODULE_NOT_FOUND` on
+`generated/prisma/client.ts` — `postinstall` had generated the client fine during the build step,
+but it didn't survive into whatever actually ran `npm start` (the generated client lives outside
+`node_modules`, at a custom `output` path, so it isn't guaranteed to be treated the same as a
+normal dependency by a platform's build/deploy packaging). Since `prisma generate` only reads the
+schema file and needs no database connection, it's cheap to run again immediately before start:
+`"migrate:deploy": "prisma generate && prisma migrate deploy"`. This means the existing Render
+Start Command (`npm run migrate:deploy && npm start`) self-heals with just a redeploy — no dashboard
+reconfiguration needed.
+
+---
+

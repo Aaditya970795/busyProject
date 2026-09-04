@@ -843,5 +843,40 @@ functions don't automatically win against every possible `rewrites` pattern — 
 rewrite (like a bare catch-all SPA fallback) can still intercept a path a function would otherwise
 have served, and needs to explicitly carve out an exception for it.
 
+**Later reversed/superseded**: excluding `/api/*` from the SPA fallback was necessary but not
+sufficient — with the conflicting rewrite gone, `/api/*` returned a genuine Vercel platform
+`404 NOT_FOUND` instead of `405`, meaning `client/api/[...path].js` was never being deployed as a
+function at all. See decision #81, which replaces the dynamic catch-all file convention with a
+plain function and an explicit internal rewrite.
+
+---
+
+81. The Vercel proxy is one plain function (`api/proxy.js`) reached via an explicit rewrite, not a dynamic catch-all file
+
+With decision #80's fix live, `/api/*` requests still failed — now with a genuine Vercel platform
+`404 NOT_FOUND`, on every path, regardless of method. Proven by direct testing (curling the live
+site, not just reading pasted logs): a brand new plain, non-dynamic function
+(`client/api/health.js`, no brackets in the filename) deployed and responded correctly on the very
+same project and Root Directory settings, while `client/api/[...path].js` never did. That isolated
+the fault to the dynamic catch-all file-routing convention itself — for whatever reason, on this
+project, Vercel wasn't matching incoming `/api/*` requests to that file at all, despite Root
+Directory (`client`), `package.json`'s `"type": "module"`, and the file's own content and git
+location all being confirmed correct.
+
+Rather than keep debugging an undocumented platform-specific routing quirk, replaced the dynamic
+route with the combination already independently proven to work: `client/api/proxy.js` — a single,
+plain function, identical in shape to the working `health.js` test — paired with an explicit
+`vercel.json` rewrite that sends every `/api/*` request to it directly:
+`{"source": "/api/(.*)", "destination": "/api/proxy?path=$1"}`. The captured path arrives as an
+ordinary query parameter (`req.query.path`) rather than through Vercel's dynamic-segment matching,
+sidestepping whatever was wrong with that mechanism entirely. The SPA fallback rule from decision
+#80 stays alongside it, still excluding `/api/*` so the two rewrites can't conflict with each other.
+
+Verified end-to-end against the live production URL directly (not just status codes): login,
+session persistence via the cookie, role enforcement (a 403 for a waiter hitting a manager-only
+route), GET requests with query strings, a real POST-with-JSON-body order creation and a follow-up
+PATCH, and logout actually clearing the session — all through `busy-project.vercel.app`, never
+touching the Render domain directly, in both a normal browser and Incognito.
+
 ---
 

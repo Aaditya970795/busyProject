@@ -319,28 +319,32 @@ matter what `SameSite`/`Secure` says, and Incognito blocks those outright. Login
 (the response body carries the user, so the UI renders as logged in) and then every subsequent
 request 401'd, since the cookie was never actually stored.
 
-The fix (see decisions #78/#79/#80) was to stop the browser from ever making a cross-site call at
-all:
+The fix (see decisions #78–#81) was to stop the browser from ever making a cross-site call at all —
+it took three iterations to land on a version that actually worked in production, not just in
+theory:
 
 - **Client → server calls go through a same-origin proxy, not a direct cross-origin call.**
-  `client/api/[...path].js` is a real Vercel Serverless Function that hand-proxies every `/api/*`
+  `client/api/proxy.js` is a real Vercel Serverless Function that hand-proxies every `/api/*`
   request to the deployed Render URL (read from `process.env.API_ORIGIN`, a plain server-side env
   var set directly in Vercel's project settings — deliberately not `VITE_`-prefixed, since that
   prefix means "expose to the public browser bundle," which this value never should be) — the
-  browser only ever talks to the Vercel domain, for every request including login. A plain
-  `vercel.json` `rewrites` entry to an external URL was tried first and reverted (decision #79): it
-  only reliably forwards GET/HEAD, so every POST (starting with login) came back a `405` straight
-  from Vercel's edge, never reaching Render at all. A real function has no such method restriction —
-  it forwards the method, the raw body, and every response header (including multiple `Set-Cookie`
-  headers, via `Headers.getSetCookie()`) exactly as received. Even after that fix, login still 405'd
-  once more (decision #80): the SPA fallback rewrite's bare catch-all pattern (`/(.*)`) was matching
-  `/api/*` too, rewriting `POST /api/auth/login` to the static `index.html` file — which only
-  accepts GET/HEAD — before the request ever reached the function. Fixed with a negative-lookahead
-  source pattern (`"/((?!api/).*)"`) so the fallback only touches non-API paths.
-  `VITE_API_BASE_URL` (`client/src/lib/api.js`) stays unset in this setup and the client defaults to
-  the relative `/api` path, which the function handles. It still exists as an escape hatch for a
-  host with no equivalent proxy capability, with the third-party-cookie tradeoff documented in
-  `client/.env.example`.
+  browser only ever talks to the Vercel domain, for every request including login.
+  `client/vercel.json` rewrites `/api/(.*)` to `/api/proxy?path=$1`, and the function reads the
+  real path back out of `req.query.path`. Two earlier attempts didn't survive contact with
+  production: a plain `rewrites` entry straight to Render's *external* URL (decision #79) only
+  reliably forwards GET/HEAD, so every POST came back a `405` from Vercel's edge without ever
+  reaching Render; and a `[...path].js` dynamic catch-all file (also decision #79, then #81) turned
+  out not to route correctly on this project at all — proven by deploying a plain, non-dynamic test
+  function that worked immediately on the exact same settings. The current shape — one plain
+  function, reached via an explicit internal rewrite — sidesteps both problems: no external-URL
+  method restriction, and no reliance on dynamic file-route matching. It forwards the method, the
+  raw body, and every response header (including multiple `Set-Cookie` headers, via
+  `Headers.getSetCookie()`) exactly as received. The SPA fallback rewrite (decision #80) sits
+  alongside it with a negative-lookahead source pattern (`"/((?!api/).*)"`) so the two rewrites
+  can't intercept each other's paths. `VITE_API_BASE_URL` (`client/src/lib/api.js`) stays unset in
+  this setup and the client defaults to the relative `/api` path, which the function handles. It
+  still exists as an escape hatch for a host with no equivalent proxy capability, with the
+  third-party-cookie tradeoff documented in `client/.env.example`.
 - **CORS.** The server's `CLIENT_ORIGIN` env var (Render) must still be the exact deployed Vercel
   URL, no trailing slash (auto-trimmed defensively either way — see decision #78's sibling fix in
   `app.js`) — `cors({ origin: CLIENT_ORIGIN, credentials: true })` only allows that one origin

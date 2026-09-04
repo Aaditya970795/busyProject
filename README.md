@@ -25,14 +25,17 @@ Client runs on `http://localhost:5173`, server on `http://localhost:4000`.
 ## Deploying
 
 Client → Vercel, server → Render — but the browser only ever talks to the Vercel domain.
-`client/api/[...path].js` is a Vercel Serverless Function that proxies every `/api/*` request to
-the deployed Render URL, so from the browser's point of view every request (including login) is
+`client/api/proxy.js` is a Vercel Serverless Function that proxies every `/api/*` request to the
+deployed Render URL, so from the browser's point of view every request (including login) is
 same-origin. This isn't just tidiness: a genuinely cross-site request (client calling the Render
 URL directly) makes the login cookie a third-party cookie, which Incognito/private browsing blocks
 outright — login would appear to succeed (the response body has the user data) and then every
-subsequent request would 401, with no cookie ever actually stored. (A plain `vercel.json` rewrite
-to the external URL was tried first and doesn't work for this — it only reliably forwards
-GET/HEAD, so login and every other mutation came back a `405` from Vercel's own edge.) See
+subsequent request would 401, with no cookie ever actually stored. Two simpler approaches were
+tried first and didn't survive contact with production (see `docs/decisions.md` #79/#81): a plain
+`vercel.json` rewrite straight to the external Render URL only reliably forwards GET/HEAD, so every
+POST came back a `405`; and a `[...path].js` dynamic catch-all function file didn't route correctly
+on Vercel at all. `client/vercel.json` now rewrites `/api/(.*)` to the internal path
+`/api/proxy?path=$1`, which the plain (non-dynamic) function reads back out. See
 `docs/architecture.md`'s "Where things actually run in production".
 
 1. On Render (server), run migrations with `npm run migrate:deploy` (`prisma generate` +
@@ -40,7 +43,8 @@ GET/HEAD, so login and every other mutation came back a `405` from Vercel's own 
    (`prisma migrate dev`) in production.
 2. On Render, set `CLIENT_ORIGIN` to the exact deployed Vercel URL, and make sure `NODE_ENV` is
    `production` (Render sets this by default).
-3. In `client/api/[...path].js`, update `API_ORIGIN` to your actual deployed Render URL.
+3. On Vercel, set `API_ORIGIN` (a plain environment variable, **not** `VITE_`-prefixed — see
+   `client/.env.example`) to your actual deployed Render URL, e.g. `https://your-app.onrender.com`.
 4. Leave `VITE_API_BASE_URL` **unset** on Vercel — the client defaults to the relative `/api` path,
    which the proxy function above handles. Only set it if you're intentionally accepting the direct
    cross-origin tradeoff described in `client/.env.example` (e.g. deploying the client somewhere

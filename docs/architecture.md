@@ -319,20 +319,28 @@ matter what `SameSite`/`Secure` says, and Incognito blocks those outright. Login
 (the response body carries the user, so the UI renders as logged in) and then every subsequent
 request 401'd, since the cookie was never actually stored.
 
-The fix (see decisions #78/#79) was to stop the browser from ever making a cross-site call at all:
+The fix (see decisions #78/#79/#80) was to stop the browser from ever making a cross-site call at
+all:
 
 - **Client → server calls go through a same-origin proxy, not a direct cross-origin call.**
   `client/api/[...path].js` is a real Vercel Serverless Function that hand-proxies every `/api/*`
-  request to the deployed Render URL — the browser only ever talks to the Vercel domain, for every
-  request including login. A plain `vercel.json` `rewrites` entry to an external URL was tried
-  first and reverted (decision #79): it only reliably forwards GET/HEAD, so every POST (starting
-  with login) came back a `405` straight from Vercel's edge, never reaching Render at all. A real
-  function has no such method restriction — it forwards the method, the raw body, and every
-  response header (including multiple `Set-Cookie` headers, via `Headers.getSetCookie()`) exactly
-  as received. `VITE_API_BASE_URL` (`client/src/lib/api.js`) stays unset in this setup and the
-  client defaults to the relative `/api` path, which the function handles. It still exists as an
-  escape hatch for a host with no equivalent proxy capability, with the third-party-cookie tradeoff
-  documented in `client/.env.example`.
+  request to the deployed Render URL (read from `process.env.API_ORIGIN`, a plain server-side env
+  var set directly in Vercel's project settings — deliberately not `VITE_`-prefixed, since that
+  prefix means "expose to the public browser bundle," which this value never should be) — the
+  browser only ever talks to the Vercel domain, for every request including login. A plain
+  `vercel.json` `rewrites` entry to an external URL was tried first and reverted (decision #79): it
+  only reliably forwards GET/HEAD, so every POST (starting with login) came back a `405` straight
+  from Vercel's edge, never reaching Render at all. A real function has no such method restriction —
+  it forwards the method, the raw body, and every response header (including multiple `Set-Cookie`
+  headers, via `Headers.getSetCookie()`) exactly as received. Even after that fix, login still 405'd
+  once more (decision #80): the SPA fallback rewrite's bare catch-all pattern (`/(.*)`) was matching
+  `/api/*` too, rewriting `POST /api/auth/login` to the static `index.html` file — which only
+  accepts GET/HEAD — before the request ever reached the function. Fixed with a negative-lookahead
+  source pattern (`"/((?!api/).*)"`) so the fallback only touches non-API paths.
+  `VITE_API_BASE_URL` (`client/src/lib/api.js`) stays unset in this setup and the client defaults to
+  the relative `/api` path, which the function handles. It still exists as an escape hatch for a
+  host with no equivalent proxy capability, with the third-party-cookie tradeoff documented in
+  `client/.env.example`.
 - **CORS.** The server's `CLIENT_ORIGIN` env var (Render) must still be the exact deployed Vercel
   URL, no trailing slash (auto-trimmed defensively either way — see decision #78's sibling fix in
   `app.js`) — `cors({ origin: CLIENT_ORIGIN, credentials: true })` only allows that one origin

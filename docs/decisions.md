@@ -818,5 +818,30 @@ completely different reason). `vercel.json` now only keeps the client-side-routi
 rewrite — the `/api/*` path is handled entirely by the function, which Vercel's filesystem routing
 matches before it ever considers the `rewrites` array.
 
+**Later reversed/superseded**: that last claim about routing precedence was wrong for a plain
+catch-all pattern. See decision #80 — the SPA fallback rewrite still needed to explicitly exclude
+`/api/*`, or it swallows those requests too.
+
+---
+
+80. The SPA fallback rewrite explicitly excludes `/api/*`
+
+Right after decision #79's fix, login still came back `405` — this time on our own domain, from
+our own proxy function, which made no sense until the actual cause turned up: `vercel.json`'s SPA
+fallback, `{"source": "/(.*)", "destination": "/index.html"}`, matches literally every path,
+including `/api/*`, not just client-side routes. It was rewriting `POST /api/auth/login` to serve
+the static `index.html` file instead — and a static file only accepts GET/HEAD, so Vercel correctly
+(from a static server's point of view) rejected the POST with `405`. The one GET request tested
+alongside it (`/api/auth/me`) came back looking fine (`304 Not Modified`), which was itself
+misleading: it was almost certainly being served a cached `index.html`, not real JSON, just quiet
+about it because GET is a method a static file server accepts.
+
+Fixed with a negative-lookahead source pattern — `"/((?!api/).*)"` — so the SPA fallback only
+matches paths that don't start with `api/`, leaving those alone for the function to actually handle.
+The underlying lesson, restated from decision #79's now-corrected claim: a project's own filesystem
+functions don't automatically win against every possible `rewrites` pattern — a sufficiently greedy
+rewrite (like a bare catch-all SPA fallback) can still intercept a path a function would otherwise
+have served, and needs to explicitly carve out an exception for it.
+
 ---
 

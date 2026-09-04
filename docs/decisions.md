@@ -792,5 +792,31 @@ package — found because a copy-pasted Render env var value with a trailing sla
 `Access-Control-Allow-Origin` that didn't byte-for-byte match the browser's `Origin` header, which
 `cors` treats as a hard mismatch rather than a warning.
 
+**Later reversed/superseded**: the plain `rewrites` entry only reliably proxies GET/HEAD to an
+external absolute URL — `POST /api/auth/login` came back as a `405` from Vercel's own edge,
+never reaching Render at all. See decision #79, which replaces it with a real serverless function
+that has no such method restriction.
+
+---
+
+79. The Vercel → Render proxy is a real serverless function, not a `rewrites` entry
+
+Decision #78's fix (route `/api/*` through the Vercel domain instead of calling Render directly)
+was the right call, but the mechanism was wrong: `vercel.json`'s `rewrites` to an external absolute
+URL turned out to only reliably forward GET/HEAD — every POST (starting with login itself) came
+back `405 Method Not Allowed` straight from Vercel's edge, a response so generic it gave no
+indication the request never even reached the actual server.
+
+Replaced with `client/api/[...path].js`, a real Vercel Serverless Function that hand-rolls the
+proxy: reads the incoming request's raw body (bodyParser disabled, to forward exact bytes rather
+than a re-serialized copy), forwards every header except the hop-by-hop ones, makes the request to
+Render with `fetch` using whatever method was actually used, and relays the response back —
+including headers, using `Headers.getSetCookie()` specifically for `Set-Cookie` (a response can
+carry more than one, and the standard `Headers` API's own accessors incorrectly comma-join multiple
+values into one invalid header otherwise, which would have silently broken login again for a
+completely different reason). `vercel.json` now only keeps the client-side-routing SPA fallback
+rewrite — the `/api/*` path is handled entirely by the function, which Vercel's filesystem routing
+matches before it ever considers the `rewrites` array.
+
 ---
 

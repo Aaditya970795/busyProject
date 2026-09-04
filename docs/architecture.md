@@ -319,23 +319,29 @@ matter what `SameSite`/`Secure` says, and Incognito blocks those outright. Login
 (the response body carries the user, so the UI renders as logged in) and then every subsequent
 request 401'd, since the cookie was never actually stored.
 
-The fix (see decision #78) was to stop the browser from ever making a cross-site call at all:
+The fix (see decisions #78/#79) was to stop the browser from ever making a cross-site call at all:
 
 - **Client → server calls go through a same-origin proxy, not a direct cross-origin call.**
-  `client/vercel.json` rewrites `/api/(.*)` to the deployed Render URL at Vercel's edge — the
-  browser only ever talks to the Vercel domain, for every request including login. `VITE_API_BASE_URL`
-  (`client/src/lib/api.js`) stays unset in this setup and the client defaults to the relative `/api`
-  path, which the rewrite handles. It still exists as an escape hatch for a host with no
-  rewrite/proxy support, with the third-party-cookie tradeoff documented in `client/.env.example`.
+  `client/api/[...path].js` is a real Vercel Serverless Function that hand-proxies every `/api/*`
+  request to the deployed Render URL — the browser only ever talks to the Vercel domain, for every
+  request including login. A plain `vercel.json` `rewrites` entry to an external URL was tried
+  first and reverted (decision #79): it only reliably forwards GET/HEAD, so every POST (starting
+  with login) came back a `405` straight from Vercel's edge, never reaching Render at all. A real
+  function has no such method restriction — it forwards the method, the raw body, and every
+  response header (including multiple `Set-Cookie` headers, via `Headers.getSetCookie()`) exactly
+  as received. `VITE_API_BASE_URL` (`client/src/lib/api.js`) stays unset in this setup and the
+  client defaults to the relative `/api` path, which the function handles. It still exists as an
+  escape hatch for a host with no equivalent proxy capability, with the third-party-cookie tradeoff
+  documented in `client/.env.example`.
 - **CORS.** The server's `CLIENT_ORIGIN` env var (Render) must still be the exact deployed Vercel
   URL, no trailing slash (auto-trimmed defensively either way — see decision #78's sibling fix in
   `app.js`) — `cors({ origin: CLIENT_ORIGIN, credentials: true })` only allows that one origin
-  through. With the Vercel rewrite proxying the request server-side, this matters less for the
-  browser's own request (which is same-origin) but Vercel's edge still forwards the original
-  request's `Origin` header through to Render.
+  through. With the proxy function forwarding the request server-side, this matters less for the
+  browser's own request (which is same-origin) but the function forwards the original request's
+  headers through to Render, Origin included.
 - **The auth cookie.** `SameSite=None; Secure` in production (`auth.controller.js`, switched on by
   `NODE_ENV=production`) is still correct to keep — it's a superset of `Lax` that also permits
-  same-origin requests, so it doesn't need to change now that the Vercel rewrite makes requests
+  same-origin requests, so it doesn't need to change now that the proxy function makes requests
   same-origin from the browser's perspective. What actually matters is that the cookie is now set by
   a same-origin response (as far as the browser is concerned), which is what makes it a first-party
   cookie no third-party-cookie policy touches.

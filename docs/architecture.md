@@ -311,22 +311,34 @@ anyway.
 ## Where things actually run in production
 
 The client deploys to Vercel (static build via `vite build`) and the server deploys to Render (a
-plain Node web service). They're on two different domains, so this isn't the same "share an origin"
-setup local dev gets from Vite's `/api` proxy — a few things have to be explicit instead:
+plain Node web service) — genuinely two different domains at the infrastructure level. The first
+deploy connected them with a direct cross-origin call (client's JS calling the Render URL directly)
+plus `SameSite=None; Secure` on the auth cookie. That worked in a normal browser window, but broke
+immediately in Incognito: a cookie set by a truly cross-site response is a third-party cookie no
+matter what `SameSite`/`Secure` says, and Incognito blocks those outright. Login would "succeed"
+(the response body carries the user, so the UI renders as logged in) and then every subsequent
+request 401'd, since the cookie was never actually stored.
 
-- **Client → server calls.** `client/src/lib/api.js` calls `import.meta.env.VITE_API_BASE_URL` (an
-  absolute URL, e.g. `https://your-app.onrender.com/api`), falling back to the relative `/api` only
-  when that's unset (i.e. local dev). Set `VITE_API_BASE_URL` as a Vercel environment variable to
-  the deployed Render URL. See `client/.env.example`.
-- **CORS.** The server's `CLIENT_ORIGIN` env var (Render) must be the exact deployed Vercel URL, no
-  trailing slash — `app.js`'s `cors({ origin: process.env.CLIENT_ORIGIN, credentials: true })` only
-  allows that one origin through.
-- **The auth cookie.** Client and server being on different domains makes every API call a
-  cross-site request from the browser's point of view. A `SameSite=Lax` cookie (the local-dev
-  default) is never attached to a cross-site fetch/XHR — only `SameSite=None; Secure` is, and
-  browsers require `Secure` whenever `None` is used. `auth.controller.js` switches to
-  `None`/`Secure` automatically when `NODE_ENV=production` (Render sets this by default) — see
-  decision #76's sibling fix in that file for the reasoning.
+The fix (see decision #78) was to stop the browser from ever making a cross-site call at all:
+
+- **Client → server calls go through a same-origin proxy, not a direct cross-origin call.**
+  `client/vercel.json` rewrites `/api/(.*)` to the deployed Render URL at Vercel's edge — the
+  browser only ever talks to the Vercel domain, for every request including login. `VITE_API_BASE_URL`
+  (`client/src/lib/api.js`) stays unset in this setup and the client defaults to the relative `/api`
+  path, which the rewrite handles. It still exists as an escape hatch for a host with no
+  rewrite/proxy support, with the third-party-cookie tradeoff documented in `client/.env.example`.
+- **CORS.** The server's `CLIENT_ORIGIN` env var (Render) must still be the exact deployed Vercel
+  URL, no trailing slash (auto-trimmed defensively either way — see decision #78's sibling fix in
+  `app.js`) — `cors({ origin: CLIENT_ORIGIN, credentials: true })` only allows that one origin
+  through. With the Vercel rewrite proxying the request server-side, this matters less for the
+  browser's own request (which is same-origin) but Vercel's edge still forwards the original
+  request's `Origin` header through to Render.
+- **The auth cookie.** `SameSite=None; Secure` in production (`auth.controller.js`, switched on by
+  `NODE_ENV=production`) is still correct to keep — it's a superset of `Lax` that also permits
+  same-origin requests, so it doesn't need to change now that the Vercel rewrite makes requests
+  same-origin from the browser's perspective. What actually matters is that the cookie is now set by
+  a same-origin response (as far as the browser is concerned), which is what makes it a first-party
+  cookie no third-party-cookie policy touches.
 - **Migrations.** `npm run migrate` runs `prisma migrate dev`, which is a local development command
   (it can prompt interactively and isn't meant to run unattended). Production runs
   `npm run migrate:deploy` (`prisma migrate deploy`) instead — a non-interactive command that only

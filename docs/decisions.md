@@ -769,3 +769,28 @@ reconfiguration needed.
 
 ---
 
+78. Client → server calls go through Vercel's rewrite proxy, not a direct cross-origin call
+
+The first production deploy had the client call the Render URL directly (`VITE_API_BASE_URL` set to
+an absolute `https://...onrender.com/api`), with `CLIENT_ORIGIN` and `SameSite=None; Secure`
+(decision #76's sibling auth.controller.js fix) making that work in a normal browser window. It
+still broke immediately in Incognito: login "succeeded" (the response body carries the user, so the
+UI renders as logged in) and then every following request came back 401. Root cause: a cookie set
+by a genuinely cross-site response is a third-party cookie no matter what `SameSite`/`Secure` says,
+and Incognito blocks those outright — the cookie from login was never actually stored.
+
+Fixed by removing the cross-site call entirely instead of trying to work around browser third-party-
+cookie policy: `client/vercel.json` now rewrites `/api/(.*)` to the deployed Render URL, so the
+browser only ever talks to the Vercel domain — the `Set-Cookie` it gets back looks like an ordinary
+first-party cookie for whatever host it thinks it's talking to. `VITE_API_BASE_URL` goes back to
+being unset (the client's `/api` default), and stays documented as an opt-in escape hatch for a host
+without rewrite/proxy support, with the third-party-cookie tradeoff spelled out for whoever reaches
+for it next.
+
+Also made `CLIENT_ORIGIN` (`app.js`) trim a trailing slash before being handed to the `cors`
+package — found because a copy-pasted Render env var value with a trailing slash produced an
+`Access-Control-Allow-Origin` that didn't byte-for-byte match the browser's `Origin` header, which
+`cors` treats as a hard mismatch rather than a warning.
+
+---
+

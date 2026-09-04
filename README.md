@@ -24,16 +24,25 @@ Client runs on `http://localhost:5173`, server on `http://localhost:4000`.
 
 ## Deploying
 
-Client → Vercel, server → Render. Since they end up on different domains, three things need to be
-set correctly (see `docs/architecture.md`'s "Where things actually run in production" for the why):
+Client → Vercel, server → Render — but the browser only ever talks to the Vercel domain.
+`client/vercel.json` rewrites `/api/*` to the deployed Render URL at Vercel's edge, so from the
+browser's point of view every request (including login) is same-origin. This isn't just tidiness:
+a genuinely cross-site request (client calling the Render URL directly) makes the login cookie a
+third-party cookie, which Incognito/private browsing blocks outright — login would appear to
+succeed (the response body has the user data) and then every subsequent request would 401, with no
+cookie ever actually stored. See `docs/architecture.md`'s "Where things actually run in production".
 
-1. On Render (server), run migrations with `npm run migrate:deploy` (`prisma migrate deploy`)
-   before starting the server — never `npm run migrate` (`prisma migrate dev`) in production.
+1. On Render (server), run migrations with `npm run migrate:deploy` (`prisma generate` +
+   `prisma migrate deploy`) before starting the server — never `npm run migrate`
+   (`prisma migrate dev`) in production.
 2. On Render, set `CLIENT_ORIGIN` to the exact deployed Vercel URL, and make sure `NODE_ENV` is
-   `production` (Render sets this by default) — this also switches the auth cookie to
-   `SameSite=None; Secure`, which cross-domain login depends on.
-3. On Vercel (client), set `VITE_API_BASE_URL` to the deployed Render URL plus `/api`, e.g.
-   `https://your-app.onrender.com/api`.
+   `production` (Render sets this by default).
+3. In `client/vercel.json`, point the `/api/(.*)` rewrite's destination at your actual deployed
+   Render URL.
+4. Leave `VITE_API_BASE_URL` **unset** on Vercel — the client defaults to the relative `/api` path,
+   which the rewrite above handles. Only set it if you're intentionally accepting the direct
+   cross-origin tradeoff described in `client/.env.example` (e.g. no rewrite/proxy support on
+   whatever's hosting the client).
 
 ## Demo credentials
 

@@ -12,18 +12,21 @@ import notificationRoutes from "./routes/notification.routes.js";
 
 const app = express();
 
-// If this is missing or doesn't exactly match the deployed client's origin (no trailing slash,
-// exact protocol/host), the `cors` package silently omits Access-Control-Allow-Origin from every
-// response — which browsers report as a generic "blocked by CORS policy" with no server-side clue
-// at all. Logging it at boot means a misconfigured env var shows up here instead of only being
-// diagnosable from the browser console.
-if (!process.env.CLIENT_ORIGIN) {
+// A browser's Origin header never has a trailing slash, but it's an easy thing to paste in wrong
+// when copying a deployed URL — trimming one here means that one common typo doesn't quietly
+// break every cross-site request. If this is missing or still doesn't match after trimming, the
+// `cors` package silently omits Access-Control-Allow-Origin from every response, which browsers
+// report as a generic "blocked by CORS policy" with no server-side clue at all — logging it at
+// boot means a misconfigured env var shows up here instead of only being diagnosable from the
+// browser console.
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN?.replace(/\/+$/, "");
+if (!CLIENT_ORIGIN) {
   console.warn("[cors] CLIENT_ORIGIN is not set — no browser origin will be allowed through CORS.");
 } else {
-  console.log(`[cors] Allowing requests from CLIENT_ORIGIN=${process.env.CLIENT_ORIGIN}`);
+  console.log(`[cors] Allowing requests from CLIENT_ORIGIN=${CLIENT_ORIGIN}`);
 }
 
-app.use(cors({ origin: process.env.CLIENT_ORIGIN, credentials: true }));
+app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }));
 app.use(express.json());
 app.use(cookieParser());
 

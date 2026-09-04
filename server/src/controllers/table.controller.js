@@ -59,15 +59,29 @@ export async function create(req, res) {
 
 async function setArchived(req, res, isArchived) {
   const { id } = req.params;
-  try {
-    const table = await prisma.table.update({ where: { id }, data: { isArchived } });
-    return res.json({ table });
-  } catch (err) {
-    if (err.code === "P2025") {
-      return res.status(404).json({ error: "Table not found" });
-    }
-    throw err;
+
+  const table = await prisma.table.findUnique({ where: { id } });
+  if (!table) {
+    return res.status(404).json({ error: "Table not found" });
   }
+
+  // Only removing a table needs this check — restoring one is always safe. A waiter could be
+  // mid-order on this table right now (placed/accepted/preparing/ready); pulling the table out
+  // from under them wouldn't cancel or affect their order (Order.tableNumber isn't a real foreign
+  // key — see decision #17), but it would strand it: gone from the table picker, invisible to the
+  // occupancy check, yet still fully active. A table can only be removed once it's free — the
+  // order on it has to reach Served/Cancelled (or be deleted, while still eligible) first.
+  if (isArchived) {
+    const occupiedNumbers = await getOccupiedTableNumbers();
+    if (occupiedNumbers.has(table.number)) {
+      return res.status(400).json({
+        error: `Table ${table.number} has an order in progress and can't be removed yet — it'll free up once that order is served or cancelled.`,
+      });
+    }
+  }
+
+  const updated = await prisma.table.update({ where: { id }, data: { isArchived } });
+  return res.json({ table: updated });
 }
 
 export function archive(req, res) {

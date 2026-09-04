@@ -122,8 +122,10 @@ export function TablesPage() {
                   <Button
                     variant="secondaryDark"
                     size="sm"
-                    className="hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-300"
+                    className="hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-300 disabled:hover:border-white/15 disabled:hover:bg-transparent disabled:hover:text-inherit"
                     onClick={() => archiveMutation.mutate(table.id)}
+                    disabled={table.isOccupied}
+                    title={table.isOccupied ? "Has an order in progress — free it up before removing." : undefined}
                   >
                     <ArchiveIcon width="14" height="14" />
                     Remove
@@ -160,6 +162,7 @@ export function TablesPage() {
         </DarkCard>
       )}
       <ErrorMessage error={createMutation.error} className="mt-2" />
+      <ErrorMessage error={archiveMutation.error} className="mt-2" />
     </div>
   );
 }

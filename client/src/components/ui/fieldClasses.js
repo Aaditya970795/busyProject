@@ -18,7 +18,12 @@ const TONE_CLASSES = {
 export function controlClasses({ error, className = "", tone = "light" }) {
   const t = TONE_CLASSES[tone] ?? TONE_CLASSES.light;
   const base = `mt-1 w-full rounded-md border px-3 py-2 text-sm transition-colors duration-150 focus:outline-none focus:ring-1 disabled:cursor-not-allowed ${t.base}`;
-  return `${base} ${error ? t.error : t.normal} ${className}`;
+  // <option>s inherit the <select>'s own text color (white on the dark tone), but the dropdown
+  // popup itself is the OS's native control and always renders on a plain light background — so
+  // a dark-tone select's open dropdown was white text on a white popup, unreadable. Forced
+  // regardless of tone, since the popup background can't be themed dark cross-browser anyway.
+  const optionOverride = "[&>option]:bg-white [&>option]:text-slate-900";
+  return `${base} ${error ? t.error : t.normal} ${optionOverride} ${className}`;
 }
 
 // Color defaults to text-slate-700 (correct on the white cards/forms almost every label sits

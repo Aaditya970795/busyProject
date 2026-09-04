@@ -3,6 +3,7 @@ import {
   createOrder,
   listOrders,
   listMyOrders,
+  listDeletedOrders,
   exportOrders,
   getOrder,
   updateStatus,
@@ -23,8 +24,9 @@ const router = Router();
 router.post("/", requireAuth, createOrder);
 router.get("/", requireAuth, listOrders);
 router.get("/mine", requireAuth, listMyOrders);
-// Registered before /:id so a request for "/export" doesn't match :id first.
+// Registered before /:id so a request for "/export"/"/deleted" doesn't match :id first.
 router.get("/export", requireAuth, exportOrders);
+router.get("/deleted", requireAuth, listDeletedOrders);
 router.get("/:id", requireAuth, getOrder);
 router.patch("/:id/status", requireAuth, updateStatus);
 router.post("/:id/lines", requireAuth, addLine);

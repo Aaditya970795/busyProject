@@ -107,6 +107,58 @@ to this new table. Whether a table is "occupied" gets worked out by comparing `T
 the `tableNumber` on any order that's still open that comparison happens in the code, not as a
 database relationship.
 
+## The OrderEvent table (added in Task 13)
+
+The audit trail. One row per thing that happened to an order — a status change, a line added, a
+line voided, a note, or (see below) the order being deleted:
+
+- `eventType` a real Postgres enum (`status_change`, `line_added`, `line_voided`, `note`,
+  `order_deleted`), same "the database physically can't store garbage here" reasoning as `Role`.
+- `oldValue`/`newValue` free-text, meaning depends on `eventType` (e.g. the old/new status for a
+  `status_change`, or the item description for a `line_added`).
+- `note` used for a voided line's reason or a standalone note's text.
+- `actorId` who did it nullable, because the one automated actor in this app (the auto-clear sweep,
+  Task 14) isn't a person and has nobody to attribute the event to. A null actor renders as
+  "Automatically cancelled" in the UI instead of a name.
+- `createdAt`.
+
+Every write to this table goes through one helper (`logEvent`), always inside the same transaction
+as the change it's recording. Nothing in the app ever calls `.update`/`.delete`/`.deleteMany` on it
+— see decision #48. `OrderLine.status` is likewise a real enum now (`LineStatus`: `active`/`void`),
+not a boolean, since a voided line still needs to render its `voidReason`.
+
+## Alert-related fields on Order (added in Task 14)
+
+- `alertAcknowledgedAt`/`alertAcknowledgedById` when an alerting order was last acknowledged, and
+  by whom. Never cleared once set — an alert "reappearing" just means enough time has passed since
+  this timestamp (see `ALERT_REAPPEAR_MINUTES`), not a new column being flipped.
+
+These deliberately live as plain columns on `Order`, not as `OrderEvent` rows — decision #53 covers
+why acknowledging an alert isn't part of the Task 13 audit timeline.
+
+## The Notification table (added in Task 15)
+
+A personal inbox row, one per user per thing they need to know about (today, only the auto-clear
+sweep cancelling one of their orders):
+
+- `userId`/`orderId` who it's for, and which order it's about (`orderId` optional, so this doesn't
+  become order-specific forever).
+- `message` the actual text.
+- `readAt` nullable; set the moment the recipient's browser polls and shows it as a toast, so it
+  can't fire twice.
+
+Polled from `GET /api/notifications/unread`, same trade-off as the alerts badge (decision #56):
+there's no websocket/SSE channel in this app, so "live" means "at most 30 seconds stale."
+
+## Soft-delete fields on Order (added in a pre-deployment review)
+
+- `deletedAt`/`deletedById` set by `DELETE /api/orders/:id` instead of an actual row delete — see
+  decision #76. The order, its lines, its collaborators, and its `OrderEvent` history all stay in
+  the database exactly as they were; every normal query (the order list, `/mine`, CSV export, the
+  dashboard, alerts, table occupancy) just adds `deletedAt: null` to keep a deleted order out of
+  everyday view. `GET /orders/:id` and `GET /orders/:id/timeline` are the deliberate exception —
+  they keep working for a deleted order's id, which is the whole point of not hard-deleting it.
+
 ## Indexes added for search and sorting (added in Task 6)
 
 Two indexes went on the Order table once the order list started supporting filtering and sorting by
@@ -178,3 +230,6 @@ automatically unless you ask just an easy thing to overlook until a query plan a
   neutralized in the code before it's written out, by prefixing it with a literal `'`  Excel/Sheets
   then render it as text instead of evaluating it. The database stores the original value untouched;
   this is purely an export-time concern.
+- **An order can only be deleted while it's still `placed` or `accepted`**: checked in the code,
+  the same boundary as cancelling. The database has no idea what "deleted" even means here — it's
+  never a real row delete, just `deletedAt`/`deletedById` being set (see decision #76).

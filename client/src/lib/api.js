@@ -1,7 +1,11 @@
 import axios from "axios";
 
+// Locally this stays "/api" and Vite's dev proxy (vite.config.js) forwards it to
+// localhost:4000 — same origin, no CORS/cookie concerns. In production, client and server are on
+// different domains (e.g. Vercel + Render), so VITE_API_BASE_URL must be set to the deployed
+// server's absolute URL (e.g. "https://your-app.onrender.com/api") — see client/.env.example.
 const client = axios.create({
-  baseURL: "/api",
+  baseURL: import.meta.env.VITE_API_BASE_URL || "/api",
   withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });

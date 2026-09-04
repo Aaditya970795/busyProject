@@ -3,7 +3,7 @@ import { OPEN_STATUSES } from "../lib/orderStatus.js";
 
 async function getOccupiedTableNumbers() {
   const openOrders = await prisma.order.findMany({
-    where: { isArchived: false, status: { in: [...OPEN_STATUSES] } },
+    where: { isArchived: false, deletedAt: null, status: { in: [...OPEN_STATUSES] } },
     select: { tableNumber: true },
   });
   return new Set(openOrders.map((order) => order.tableNumber));

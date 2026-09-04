@@ -56,6 +56,8 @@ function describeEvent(event) {
       return `${actorName} voided '${event.newValue}' — reason: ${event.note}`;
     case "note":
       return `${actorName} left a note: "${event.note}"`;
+    case "order_deleted":
+      return `${actorName} deleted this order (was ${capitalize(event.oldValue)})`;
     default:
       return `${actorName} recorded an event`;
   }
@@ -106,6 +108,15 @@ export function OrderDetailPage() {
     enabled: canManageCollaborators,
   });
 
+  const eligibleCollaborators = (waiterData?.users ?? []).filter(
+    (waiter) =>
+      order && waiter.id !== order.primaryWaiterId && !order.collaborators.some((c) => c.waiterId === waiter.id)
+  );
+  // No blank "Select a waiter" option — the field defaults to the first eligible waiter instead,
+  // so the dropdown's own list only ever shows real names, and "Add" is disabled only when there's
+  // truly nobody left to add.
+  const selectedCollaboratorId = collaboratorId || eligibleCollaborators[0]?.id || "";
+
   const addCollaboratorMutation = useMutation({
     mutationFn: (waiterId) => api.post(`/orders/${id}/collaborators`, { waiter_id: waiterId }),
     onSuccess: () => {
@@ -116,8 +127,8 @@ export function OrderDetailPage() {
 
   function handleAddCollaborator(e) {
     e.preventDefault();
-    if (!collaboratorId) return;
-    addCollaboratorMutation.mutate(collaboratorId);
+    if (!selectedCollaboratorId) return;
+    addCollaboratorMutation.mutate(selectedCollaboratorId);
   }
 
   const addLineMutation = useMutation({
@@ -207,6 +218,12 @@ export function OrderDetailPage() {
   const { total } = data;
   const nextStatus = NEXT_STATUS[order.status];
   const isOpen = OPEN_STATUSES.has(order.status);
+  const isDeleted = Boolean(order.deletedAt);
+  // Deletable only while nothing has actually started yet — mirrors CANCELLABLE_STATUSES since
+  // the server enforces the exact same boundary (server/src/controllers/order.controller.js,
+  // DELETABLE_STATUSES): once preparing has begun, the order can only be cancelled/archived, not
+  // deleted.
+  const canDelete = CANCELLABLE_STATUSES.has(order.status);
 
   return (
     <div className="animate-fade-in">
@@ -225,13 +242,14 @@ export function OrderDetailPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {nextStatus && (
+          {!isDeleted && nextStatus && (
             <Button onClick={() => statusMutation.mutate(nextStatus)} loading={statusMutation.isPending}>
               {NEXT_STATUS_LABEL[nextStatus]}
             </Button>
           )}
 
-          {CANCELLABLE_STATUSES.has(order.status) &&
+          {!isDeleted &&
+            CANCELLABLE_STATUSES.has(order.status) &&
             (confirmingCancel ? (
               <div className="flex items-center gap-2 rounded-md border border-amber-400/30 bg-amber-500/10 px-3 py-1.5 text-sm animate-scale-in">
                 <span className="text-amber-300">Cancel this order?</span>
@@ -260,31 +278,39 @@ export function OrderDetailPage() {
               </Button>
             ))}
 
-          {confirmingDelete ? (
-            <div className="flex items-center gap-2 rounded-md border border-red-400/30 bg-red-500/10 px-3 py-1.5 text-sm animate-scale-in">
-              <span className="text-red-300">Delete this order?</span>
-              <Button size="sm" variant="danger" onClick={() => deleteMutation.mutate()} loading={deleteMutation.isPending}>
-                Yes, delete
-              </Button>
-              <button
-                onClick={() => setConfirmingDelete(false)}
-                className="rounded-md px-2.5 py-1 text-xs font-medium text-zinc-400 transition-colors hover:bg-white/10"
+          {!isDeleted &&
+            canDelete &&
+            (confirmingDelete ? (
+              <div className="flex items-center gap-2 rounded-md border border-red-400/30 bg-red-500/10 px-3 py-1.5 text-sm animate-scale-in">
+                <span className="text-red-300">Delete this order?</span>
+                <Button size="sm" variant="danger" onClick={() => deleteMutation.mutate()} loading={deleteMutation.isPending}>
+                  Yes, delete
+                </Button>
+                <button
+                  onClick={() => setConfirmingDelete(false)}
+                  className="rounded-md px-2.5 py-1 text-xs font-medium text-zinc-400 transition-colors hover:bg-white/10"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <Button
+                variant="secondaryDark"
+                className="hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-300"
+                onClick={() => setConfirmingDelete(true)}
               >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <Button
-              variant="secondaryDark"
-              className="hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-300"
-              onClick={() => setConfirmingDelete(true)}
-            >
-              <TrashIcon />
-              Delete order
-            </Button>
-          )}
+                <TrashIcon />
+                Delete order
+              </Button>
+            ))}
         </div>
       </div>
+      {isDeleted && (
+        <div className="mt-2 rounded-md border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+          This order was deleted on {new Date(order.deletedAt).toLocaleString()}
+          {order.deletedBy && ` by ${order.deletedBy.name}`} — kept here read-only, for its history.
+        </div>
+      )}
       {order.alertAcknowledgedAt && order.alertAcknowledgedBy && (
         <p className="mt-1 text-xs text-zinc-500">
           Slow-order alert last acknowledged by {order.alertAcknowledgedBy.name},{" "}
@@ -308,33 +334,29 @@ export function OrderDetailPage() {
           ))}
         </div>
 
-        {canManageCollaborators && (
+        {canManageCollaborators && !isDeleted && isOpen && eligibleCollaborators.length > 0 && (
           <form onSubmit={handleAddCollaborator} className="mt-3 flex flex-wrap items-end gap-2">
             <Select
-              label="Add collaborator"
+              label="Select a waiter"
               labelClassName="text-zinc-300"
-              value={collaboratorId}
+              value={selectedCollaboratorId}
               onChange={(e) => setCollaboratorId(e.target.value)}
               containerClassName="min-w-[10rem] flex-1"
             >
-              <option value="">Select a waiter</option>
-              {waiterData?.users
-                .filter(
-                  (waiter) =>
-                    waiter.id !== order.primaryWaiterId &&
-                    !order.collaborators.some((c) => c.waiterId === waiter.id)
-                )
-                .map((waiter) => (
-                  <option key={waiter.id} value={waiter.id}>
-                    {waiter.name}
-                  </option>
-                ))}
+              {eligibleCollaborators.map((waiter) => (
+                <option key={waiter.id} value={waiter.id}>
+                  {waiter.name}
+                </option>
+              ))}
             </Select>
-            <Button type="submit" disabled={!collaboratorId} loading={addCollaboratorMutation.isPending}>
+            <Button type="submit" disabled={!selectedCollaboratorId} loading={addCollaboratorMutation.isPending}>
               <UserPlusIcon width="14" height="14" />
               Add
             </Button>
           </form>
+        )}
+        {canManageCollaborators && !isDeleted && isOpen && eligibleCollaborators.length === 0 && (
+          <p className="mt-3 text-xs text-zinc-500">No other waiters available to add.</p>
         )}
         <ErrorMessage error={addCollaboratorMutation.error} className="mt-2" />
       </DarkCard>
@@ -374,6 +396,7 @@ export function OrderDetailPage() {
                 <td className="px-5 py-3">
                   {line.status === "active" &&
                     isOpen &&
+                    !isDeleted &&
                     (voidingLineId === line.id ? (
                       <form onSubmit={handleVoidSubmit} className="flex items-center gap-2 animate-scale-in">
                         <input
@@ -431,7 +454,7 @@ export function OrderDetailPage() {
       </DarkPanelCard>
       <ErrorMessage error={voidMutation.error} className="mt-2" />
 
-      {menuData && isOpen && (
+      {menuData && isOpen && !isDeleted && (
         <DarkCard as="form" onSubmit={handleAddLine} className="mt-6 flex flex-wrap items-end gap-3">
           <Select
             label="Menu item"
@@ -496,19 +519,21 @@ export function OrderDetailPage() {
           )}
         </div>
 
-        <form onSubmit={handleAddNote} className="mt-3 flex flex-wrap items-end gap-2">
-          <Input
-            label="Add a note"
-            labelClassName="text-zinc-300"
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
-            placeholder="e.g. Guest asked for less spice"
-            containerClassName="min-w-[12rem] flex-1"
-          />
-          <Button type="submit" disabled={!noteText.trim()} loading={addNoteMutation.isPending}>
-            Add note
-          </Button>
-        </form>
+        {!isDeleted && isOpen && (
+          <form onSubmit={handleAddNote} className="mt-3 flex flex-wrap items-end gap-2">
+            <Input
+              label="Add a note"
+              labelClassName="text-zinc-300"
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              placeholder="e.g. Guest asked for less spice"
+              containerClassName="min-w-[12rem] flex-1"
+            />
+            <Button type="submit" disabled={!noteText.trim()} loading={addNoteMutation.isPending}>
+              Add note
+            </Button>
+          </form>
+        )}
         <ErrorMessage error={addNoteMutation.error} className="mt-2" />
       </DarkCard>
     </div>

@@ -6,6 +6,8 @@ import { MenuPage } from "./pages/MenuPage";
 import { TablesPage } from "./pages/TablesPage";
 import { TeamPage } from "./pages/TeamPage";
 import { OrdersPage } from "./pages/OrdersPage";
+import { OrderHistoryPage } from "./pages/OrderHistoryPage";
+import { DeletedOrdersPage } from "./pages/DeletedOrdersPage";
 import { OrderDetailPage } from "./pages/OrderDetailPage";
 import { AlertsPage } from "./pages/AlertsPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -28,6 +30,9 @@ export default function App() {
           <Route path="/tables" element={<TablesPage />} />
           <Route path="/team" element={<TeamPage />} />
           <Route path="/orders" element={<OrdersPage />} />
+          {/* Registered before /orders/:id so these don't get swallowed as :id="history"/"deleted". */}
+          <Route path="/orders/history" element={<OrderHistoryPage />} />
+          <Route path="/orders/deleted" element={<DeletedOrdersPage />} />
           <Route path="/orders/:id" element={<OrderDetailPage />} />
           <Route path="/alerts" element={<AlertsPage />} />
         </Route>

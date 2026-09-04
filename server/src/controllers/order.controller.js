@@ -46,6 +46,18 @@ const ALLOWED_TRANSITIONS = {
   cancelled: [],
 };
 
+// A deleted order (decision #76) is never actually removed from the database — see the `deletedAt`
+// field on the Prisma model — but every normal mutation should treat it exactly as if it were gone.
+// Only getOrder/getTimeline deliberately skip this, since showing a deleted order's full history is
+// the whole point of not hard-deleting it.
+function rejectIfDeleted(order, res) {
+  if (order.deletedAt) {
+    res.status(404).json({ error: "Order not found" });
+    return true;
+  }
+  return false;
+}
+
 // Returns null if the transition is legal, or a human-readable reason it isn't.
 function describeIllegalTransition(currentStatus, requestedStatus) {
   if (!ORDER_STATUSES.includes(requestedStatus)) {
@@ -108,7 +120,12 @@ export async function createOrder(req, res) {
     const order = await prisma.$transaction(
       async (tx) => {
         const occupyingOrder = await tx.order.findFirst({
-          where: { tableNumber: table_number, isArchived: false, status: { in: [...OPEN_STATUSES] } },
+          where: {
+            tableNumber: table_number,
+            isArchived: false,
+            deletedAt: null,
+            status: { in: [...OPEN_STATUSES] },
+          },
         });
         if (occupyingOrder) {
           throw new TableOccupiedError(table_number);
@@ -198,7 +215,7 @@ export async function listOrders(req, res) {
     return res.status(400).json({ error: `pageSize must be a positive integer up to ${MAX_PAGE_SIZE}` });
   }
 
-  const and = [{ isArchived: false }];
+  const and = [{ isArchived: false }, { deletedAt: null }];
 
   // Visibility: a manager (or admin) sees every order; a waiter only sees orders they're
   // attached to — the same rule listMyOrders uses (see orderInvolvesWaiter), just applied to
@@ -253,7 +270,7 @@ export async function listOrders(req, res) {
 // since removing it wasn't asked for, but the frontend no longer has a separate use for it.
 export async function listMyOrders(req, res) {
   const orders = await prisma.order.findMany({
-    where: { isArchived: false, ...orderInvolvesWaiter(req.user.id) },
+    where: { isArchived: false, deletedAt: null, ...orderInvolvesWaiter(req.user.id) },
     orderBy: { createdAt: "desc" },
   });
   return res.json({ orders });
@@ -326,6 +343,7 @@ export async function exportOrders(req, res) {
   // manager gets every order placed that day, same as GET /orders.
   const where = {
     isArchived: false,
+    deletedAt: null,
     createdAt: { gte: start, lt: end },
     ...(!atLeast(req.user.role, "manager") ? orderInvolvesWaiter(req.user.id) : {}),
   };
@@ -355,6 +373,10 @@ export async function getOrder(req, res) {
       lines: { include: { menuItem: true }, orderBy: { createdAt: "asc" } },
       collaborators: { include: { waiter: { select: WAITER_PUBLIC_SELECT } }, orderBy: { addedAt: "asc" } },
       alertAcknowledgedBy: { select: { id: true, name: true } },
+      // Deliberately included even for a deleted order — GET /orders/:id and GET /orders/:id/timeline
+      // are the one place a deleted order stays fully visible (see decision #76), so the UI can show
+      // who deleted it and when instead of just a 404.
+      deletedBy: { select: { id: true, name: true } },
     },
   });
 
@@ -379,6 +401,12 @@ export async function addCollaborator(req, res) {
   const order = await prisma.order.findUnique({ where: { id } });
   if (!order) {
     return res.status(404).json({ error: "Order not found" });
+  }
+  if (rejectIfDeleted(order, res)) return;
+  if (!OPEN_STATUSES.has(order.status)) {
+    return res
+      .status(400)
+      .json({ error: `Cannot add a collaborator to an order that is already ${order.status}.` });
   }
 
   // Assumption: the brief doesn't say who may attach collaborators, so this restricts it to
@@ -426,6 +454,7 @@ export async function updateStatus(req, res) {
   if (!(await canActOnOrder(req.user, order))) {
     return res.status(403).json({ error: "You do not have access to this order" });
   }
+  if (rejectIfDeleted(order, res)) return;
 
   const rejectionReason = describeIllegalTransition(order.status, status);
   if (rejectionReason) {
@@ -475,6 +504,7 @@ export async function addLine(req, res) {
   if (!(await canActOnOrder(req.user, order))) {
     return res.status(403).json({ error: "You do not have access to this order" });
   }
+  if (rejectIfDeleted(order, res)) return;
   if (!OPEN_STATUSES.has(order.status)) {
     return res
       .status(400)
@@ -565,6 +595,7 @@ export async function voidLine(req, res) {
   if (!(await canActOnOrder(req.user, order))) {
     return res.status(403).json({ error: "You do not have access to this order" });
   }
+  if (rejectIfDeleted(order, res)) return;
   if (!OPEN_STATUSES.has(order.status)) {
     return res
       .status(400)
@@ -608,6 +639,7 @@ async function setArchived(req, res, isArchived) {
   if (!(await canActOnOrder(req.user, order))) {
     return res.status(403).json({ error: "You do not have access to this order" });
   }
+  if (rejectIfDeleted(order, res)) return;
 
   const updated = await prisma.order.update({ where: { id }, data: { isArchived } });
   return res.json({ order: updated });
@@ -635,6 +667,10 @@ export async function addNote(req, res) {
   }
   if (!(await canActOnOrder(req.user, order))) {
     return res.status(403).json({ error: "You do not have access to this order" });
+  }
+  if (rejectIfDeleted(order, res)) return;
+  if (!OPEN_STATUSES.has(order.status)) {
+    return res.status(400).json({ error: `Cannot add a note to an order that is already ${order.status}.` });
   }
 
   // A standalone write, not paired with any other mutation, so this creates the row directly
@@ -684,6 +720,7 @@ export async function acknowledgeAlert(req, res) {
   if (!(await canActOnOrder(req.user, order))) {
     return res.status(403).json({ error: "You do not have access to this order" });
   }
+  if (rejectIfDeleted(order, res)) return;
 
   const updated = await prisma.order.update({
     where: { id },
@@ -691,6 +728,12 @@ export async function acknowledgeAlert(req, res) {
   });
   return res.json({ order: updated });
 }
+
+// Deletable only while nothing has actually started yet — the same boundary as cancelling
+// (decision #12): once the kitchen begins preparing, the order is real and shouldn't be erasable
+// by a waiter, only cancellable/archived from then on. Matches CANCELLABLE_STATUSES on the client
+// (client/src/lib/orderStatus.js), which hides the "Delete order" button once this would reject it.
+const DELETABLE_STATUSES = new Set(["placed", "accepted"]);
 
 export async function deleteOrder(req, res) {
   const { id } = req.params;
@@ -702,9 +745,54 @@ export async function deleteOrder(req, res) {
   if (!(await canActOnOrder(req.user, order))) {
     return res.status(403).json({ error: "You do not have access to this order" });
   }
+  if (rejectIfDeleted(order, res)) return;
+  if (!DELETABLE_STATUSES.has(order.status)) {
+    return res.status(400).json({
+      error: `Cannot delete an order that is already ${order.status} — deleting is only allowed before the kitchen starts preparing it. Cancel it instead if you need to remove it from view.`,
+    });
+  }
 
-  // OrderLine.order and OrderCollaborator.order are both onDelete: Cascade, so this also
-  // removes the order's lines and collaborator rows.
-  await prisma.order.delete({ where: { id } });
-  return res.status(204).send();
+  // Never a real prisma.order.delete() (see decision #76) — that would cascade away the order's
+  // OrderLine/OrderCollaborator/OrderEvent rows via onDelete: Cascade, destroying the very audit
+  // trail Task 13 exists to protect. This sets `deletedAt` instead, the same soft-delete pattern
+  // already used for isArchived/isActive elsewhere, so the order and its full history stay in the
+  // database and stay visible via GET /orders/:id and /orders/:id/timeline — just hidden from
+  // every normal active-order query (list, mine, export, dashboard, alerts, table occupancy).
+  const updated = await prisma.$transaction(async (tx) => {
+    const deletedOrder = await tx.order.update({
+      where: { id },
+      data: { deletedAt: new Date(), deletedById: req.user.id },
+    });
+    await logEvent(tx, {
+      orderId: id,
+      eventType: "order_deleted",
+      oldValue: order.status,
+      actorId: req.user.id,
+    });
+    return deletedOrder;
+  });
+
+  return res.json({ order: updated });
+}
+
+// The list view for deleted orders — same visibility rule as every other order list (a manager
+// sees every one, a waiter only sees orders they were the primary waiter or a collaborator on),
+// so this is where the "full history, even after deletion" requirement (decision #76) surfaces:
+// GET /orders/:id and /orders/:id/timeline still work for any id returned here.
+export async function listDeletedOrders(req, res) {
+  const and = [{ deletedAt: { not: null } }];
+  if (!atLeast(req.user.role, "manager")) {
+    and.push(orderInvolvesWaiter(req.user.id));
+  }
+
+  const orders = await prisma.order.findMany({
+    where: { AND: and },
+    include: {
+      primaryWaiter: { select: { id: true, name: true } },
+      deletedBy: { select: { id: true, name: true } },
+    },
+    orderBy: { deletedAt: "desc" },
+  });
+
+  return res.json({ orders });
 }

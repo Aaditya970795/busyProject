@@ -91,6 +91,13 @@ of a cent off.
 A waiter can also delete an order entirely if it was started by mistake, before anything real happens
 with it. That asks for a confirmation first so it's hard to do by accident.
 
+*(Update — pre-deployment review: this wasn't actually true. The route had no status check at all,
+so an order could be deleted at any point, including after being served, and doing so was a real
+database delete that cascaded away the Task 13 audit trail. Deletion is now genuinely restricted to
+before preparing starts, and "deleting" no longer removes the order or its history from the database
+at all — it's a soft delete, kept visible via `GET /orders/:id`/`/timeline` and a new
+`GET /api/orders/deleted` list. See decision #76.)*
+
 ## How an order moves through its life (added in Task 3)
 
 Every order goes through a set path: placed, then accepted, then preparing, then ready, then served —
@@ -303,5 +310,25 @@ anyway.
 
 ## Where things actually run in production
 
-Haven't gotten there yet — right now this is all local dev, running against a real Supabase
-database. I'll fill this section in once there's an actual deployment task.
+The client deploys to Vercel (static build via `vite build`) and the server deploys to Render (a
+plain Node web service). They're on two different domains, so this isn't the same "share an origin"
+setup local dev gets from Vite's `/api` proxy — a few things have to be explicit instead:
+
+- **Client → server calls.** `client/src/lib/api.js` calls `import.meta.env.VITE_API_BASE_URL` (an
+  absolute URL, e.g. `https://your-app.onrender.com/api`), falling back to the relative `/api` only
+  when that's unset (i.e. local dev). Set `VITE_API_BASE_URL` as a Vercel environment variable to
+  the deployed Render URL. See `client/.env.example`.
+- **CORS.** The server's `CLIENT_ORIGIN` env var (Render) must be the exact deployed Vercel URL, no
+  trailing slash — `app.js`'s `cors({ origin: process.env.CLIENT_ORIGIN, credentials: true })` only
+  allows that one origin through.
+- **The auth cookie.** Client and server being on different domains makes every API call a
+  cross-site request from the browser's point of view. A `SameSite=Lax` cookie (the local-dev
+  default) is never attached to a cross-site fetch/XHR — only `SameSite=None; Secure` is, and
+  browsers require `Secure` whenever `None` is used. `auth.controller.js` switches to
+  `None`/`Secure` automatically when `NODE_ENV=production` (Render sets this by default) — see
+  decision #76's sibling fix in that file for the reasoning.
+- **Migrations.** `npm run migrate` runs `prisma migrate dev`, which is a local development command
+  (it can prompt interactively and isn't meant to run unattended). Production runs
+  `npm run migrate:deploy` (`prisma migrate deploy`) instead — a non-interactive command that only
+  applies already-committed migrations, meant to run as part of the Render deploy step, before the
+  server starts.

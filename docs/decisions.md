@@ -87,6 +87,12 @@ A waiter can fully delete an order if it was started by mistake, on top of the e
 option. Deleting asks for a confirmation first, since it can't be undone — archiving already existed
 for cases where you want to hide something but keep it around.
 
+**Later reversed/superseded**: a pre-deployment review found the actual `DELETE` route never
+enforced "started by mistake" at all — it could be called at any status, including after the order
+was fully served, and did a real `prisma.order.delete()` that cascaded away the order's entire Task
+13 audit trail. See decision #76, which fixes both problems: deletion is now genuinely restricted to
+before preparing starts, and never actually erases the order or its history from the database.
+
 ---
 
 11. Order status can only move forward one step at a time, never skipping ahead or going backwards
@@ -721,5 +727,31 @@ instead of loading the row first and checking ownership after — a notification
 else simply doesn't match the query and comes back as a 404, the same result a real "not found" would
 give, without a separate ownership check that could be gotten wrong.
 
+---
 
+76. Order deletion now soft-deletes and is blocked once preparing has started
+
+A pre-deployment review found `DELETE /api/orders/:id` had no status check at all (any waiter could
+delete an order that had already been served) and did a real `prisma.order.delete()`, which cascades
+onto `OrderLine`/`OrderCollaborator`/`OrderEvent` — silently destroying the very audit trail Task 13
+exists to make immutable. Live-reproduced: an order walked through several real status changes, a
+voided line, and a collaborator add was deleted by its primary waiter, and its timeline came back 404
+afterward. Two fixes, both required together:
+
+- The route now rejects with a 400 unless the order is still `placed` or `accepted` — the exact same
+  boundary as cancelling (decision #12) — instead of allowing deletion at any status.
+- "Deleting" no longer calls `prisma.order.delete()` at all. It sets `deletedAt`/`deletedById` on the
+  order (the same soft-delete pattern already used for `isArchived`/`isActive`) and logs a new
+  `order_deleted` event, so the order and every line/collaborator/event row underneath it stay in the
+  database untouched. `GET /orders/:id` and `GET /orders/:id/timeline` deliberately keep working for a
+  deleted order — that's the whole point — while every other mutating route on that order (status,
+  lines, void, collaborators, notes, acknowledge, archive, delete-again) now rejects with 404, and
+  every *listing* query (the order list, `/mine`, CSV export, the dashboard, alerts, table occupancy)
+  excludes it via `deletedAt: null`. A new `GET /api/orders/deleted` (same visibility rule as every
+  other order list) is where that preserved history stays reachable from the UI.
+
+This can only be undone by touching the database directly, matching what was actually asked for: a
+waiter can no longer make an order's history disappear from the website, ever, at any status.
+
+---
 

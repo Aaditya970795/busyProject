@@ -22,8 +22,12 @@ export async function getSummary(req, res) {
   const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
   const [openOrders, placedToday, servedTodayEvents, byStatusRaw, byWaiterRaw] = await Promise.all([
-    prisma.order.count({ where: { isArchived: false, status: { in: [...OPEN_STATUSES] } } }),
-    prisma.order.count({ where: { isArchived: false, createdAt: { gte: todayStart, lt: todayEnd } } }),
+    prisma.order.count({
+      where: { isArchived: false, deletedAt: null, status: { in: [...OPEN_STATUSES] } },
+    }),
+    prisma.order.count({
+      where: { isArchived: false, deletedAt: null, createdAt: { gte: todayStart, lt: todayEnd } },
+    }),
     // "Served today" now comes from the OrderEvent audit trail added for the timeline feature,
     // instead of approximating it from `orders.updatedAt` (which also moves on archive/unarchive
     // and could miscount a day-old order as served today). `served` is a terminal status — an
@@ -34,12 +38,16 @@ export async function getSummary(req, res) {
         eventType: "status_change",
         newValue: "served",
         createdAt: { gte: todayStart, lt: todayEnd },
-        order: { isArchived: false },
+        order: { isArchived: false, deletedAt: null },
       },
       include: { order: { include: { lines: { include: { menuItem: { select: { name: true } } } } } } },
     }),
-    prisma.order.groupBy({ by: ["status"], where: { isArchived: false }, _count: true }),
-    prisma.order.groupBy({ by: ["primaryWaiterId"], where: { isArchived: false }, _count: true }),
+    prisma.order.groupBy({ by: ["status"], where: { isArchived: false, deletedAt: null }, _count: true }),
+    prisma.order.groupBy({
+      by: ["primaryWaiterId"],
+      where: { isArchived: false, deletedAt: null },
+      _count: true,
+    }),
   ]);
 
   const servedToday = servedTodayEvents.length;
@@ -104,7 +112,7 @@ export async function getSummary(req, res) {
       eventType: "status_change",
       newValue: "served",
       createdAt: { gte: windowStart, lt: todayEnd },
-      order: { isArchived: false },
+      order: { isArchived: false, deletedAt: null },
     },
     select: {
       createdAt: true,

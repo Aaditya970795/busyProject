@@ -6,7 +6,7 @@ import { atLeast } from "../lib/roles.js";
 // Same visibility rule as GET /orders (Task 6): a manager sees every alerting order, a waiter
 // only sees the ones they're the primary waiter or a collaborator on.
 export async function listAlerts(req, res) {
-  const and = [{ isArchived: false }, alertingWhere()];
+  const and = [{ isArchived: false }, { deletedAt: null }, alertingWhere()];
   if (!atLeast(req.user.role, "manager")) {
     and.push(orderInvolvesWaiter(req.user.id));
   }

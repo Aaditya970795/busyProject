@@ -22,14 +22,35 @@ npm run dev
 
 Client runs on `http://localhost:5173`, server on `http://localhost:4000`.
 
+## Deploying
+
+Client → Vercel, server → Render. Since they end up on different domains, three things need to be
+set correctly (see `docs/architecture.md`'s "Where things actually run in production" for the why):
+
+1. On Render (server), run migrations with `npm run migrate:deploy` (`prisma migrate deploy`)
+   before starting the server — never `npm run migrate` (`prisma migrate dev`) in production.
+2. On Render, set `CLIENT_ORIGIN` to the exact deployed Vercel URL, and make sure `NODE_ENV` is
+   `production` (Render sets this by default) — this also switches the auth cookie to
+   `SameSite=None; Secure`, which cross-domain login depends on.
+3. On Vercel (client), set `VITE_API_BASE_URL` to the deployed Render URL plus `/api`, e.g.
+   `https://your-app.onrender.com/api`.
+
 ## Demo credentials
 
-| Role    | Email                     | Password      |
-|---------|----------------------------|----------------|
-| Manager | alice.manager@test.com    | password123    |
-| Waiter  | bob.waiter@test.com       | password123    |
+The database was reset for a pre-deployment review — the original `alice.manager@test.com` /
+`bob.waiter@test.com` pair from Task 1 no longer exists. Current seeded accounts
+(`server/prisma/reset-and-reseed.js`):
 
-These were created while testing Task 1 and already exist in the database — just log in with them.
+| Role    | Email                      | Password    |
+|---------|----------------------------|-------------|
+| Waiter  | priya.sharma@test.com      | password123 |
+| Waiter  | rahul.verma@test.com       | password123 |
+| Waiter  | sara.khan@test.com         | password123 |
+| Waiter  | amit.singh@test.com        | password123 |
+
+No demo manager/admin account is seeded — that tier is a single preserved, real account (see the
+reset script's `PRESERVE_EMAIL`). Log in with your own admin/manager account, or have an existing
+admin create a manager (or a manager create a waiter) via Team → Add account.
 
 ## Stack
 
@@ -38,7 +59,7 @@ These were created while testing Task 1 and already exist in the database — ju
 | Frontend | React (via Vite) + Tailwind CSS + React Router + TanStack Query | Vite gives a fast dev loop, Tailwind keeps styling quick without writing a bunch of CSS files, React Router handles pages/redirects, TanStack Query handles the "who's logged in" state and request caching so I'm not hand-rolling loading/error states everywhere. |
 | Backend  | Node.js + Express                                          | Small, plain, no extra framework magic — easy to reason about for an API this size. |
 | Database | Postgres (hosted on Supabase), through Prisma              | Didn't want to run/manage my own Postgres server, and Prisma gives migrations plus a typed query client instead of writing raw SQL by hand. |
-| Hosting  | Not deployed anywhere yet — running locally against the real Supabase database | [YOU: fill in once this actually gets deployed somewhere] |
+| Hosting  | Client on Vercel, server on Render, both against the real Supabase database | See "Deploying" below — the two are on different domains, which needs a few env vars set correctly. |
 
 ## Goal checklist
 

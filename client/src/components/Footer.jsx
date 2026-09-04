@@ -11,7 +11,7 @@ const CAPABILITIES = [
   { icon: UsersIcon, label: "Full audit trail" },
 ];
 
-// const STACK = ["React", "Tailwind CSS", "TanStack Query", "Express", "PostgreSQL + Prisma"];
+
 
 const NAV_LINKS = [
   { to: "/dashboard", label: "Dashboard" },
@@ -53,14 +53,7 @@ function BottomBar({ year }) {
       <span className="flex w-full items-center justify-center gap-1.5">
         © {year} <span className="text-zinc-300">Order Management</span>. 
       </span>
-      {/* <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {STACK.map((item, i) => (
-          <span key={item} className="flex items-center gap-3">
-            {i > 0 && <span className="h-1 w-1 rounded-full bg-zinc-700" />}
-            {item}
-          </span>
-        ))}
-      </div> */}
+      
     </div>
   );
 }

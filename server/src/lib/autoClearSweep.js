@@ -27,6 +27,7 @@ export async function runAutoClearSweep() {
   const stuckOrders = await prisma.order.findMany({
     where: {
       isArchived: false,
+      deletedAt: null,
       status: { in: ["placed", "accepted"] },
       createdAt: { lt: cutoff },
       alertAcknowledgedAt: null,

@@ -110,6 +110,12 @@ export function AppShell() {
       <NavLink to="/orders" className={NAV_LINK_CLASS}>
         Orders
       </NavLink>
+      <NavLink to="/orders/history" className={NAV_LINK_CLASS}>
+        History
+      </NavLink>
+      <NavLink to="/orders/deleted" className={NAV_LINK_CLASS}>
+        Deleted
+      </NavLink>
       <NavLink to="/alerts" className={NAV_LINK_CLASS}>
         <span className="inline-flex items-center gap-1.5">
           Alerts
@@ -137,6 +143,12 @@ export function AppShell() {
       </NavLink>
       <NavLink to="/orders" className={MOBILE_NAV_LINK_CLASS} onClick={() => setMobileMenuOpen(false)}>
         Orders
+      </NavLink>
+      <NavLink to="/orders/history" className={MOBILE_NAV_LINK_CLASS} onClick={() => setMobileMenuOpen(false)}>
+        History
+      </NavLink>
+      <NavLink to="/orders/deleted" className={MOBILE_NAV_LINK_CLASS} onClick={() => setMobileMenuOpen(false)}>
+        Deleted
       </NavLink>
       <NavLink to="/alerts" className={MOBILE_NAV_LINK_CLASS} onClick={() => setMobileMenuOpen(false)}>
         <span className="inline-flex items-center gap-1.5">

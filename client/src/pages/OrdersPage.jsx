@@ -156,7 +156,7 @@ export function OrdersPage() {
     <div>
       <PageHeader
         title="Orders"
-        subtitle="Open a new ticket or jump back into one."
+        subtitle="Your current order status — every order still in play. Once an order is Served or Cancelled it moves to History automatically."
         action={
           <div className="flex items-end gap-2">
             <Input
@@ -213,7 +213,8 @@ export function OrdersPage() {
         <div className="mt-4 flex flex-wrap items-end gap-3">
           <Select
             label="First item"
-            labelClassName="text-zinc-300"
+            labelClassName="text-white"
+            className="text-sm text-black"
             value={menuItemId}
             onChange={(e) => setMenuItemId(e.target.value)}
             containerClassName="min-w-[10rem] flex-1"

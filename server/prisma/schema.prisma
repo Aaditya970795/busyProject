@@ -35,6 +35,7 @@ enum EventType {
   line_added
   line_voided
   note
+  order_deleted
 }
 
 model User {
@@ -56,6 +57,7 @@ model User {
   collaborating         OrderCollaborator[]
   orderEvents           OrderEvent[]
   alertAcknowledgements Order[]             @relation("OrderAlertAcknowledgedBy")
+  deletedOrders         Order[]             @relation("OrderDeletedBy")
   notifications         Notification[]
 }
 
@@ -88,6 +90,14 @@ model Order {
   alertAcknowledgedAt   DateTime?
   alertAcknowledgedById String?
   alertAcknowledgedBy   User?       @relation("OrderAlertAcknowledgedBy", fields: [alertAcknowledgedById], references: [id])
+  // A "deleted" order is never actually removed from the database — see decision #76. Setting
+  // this instead of hard-deleting the row means OrderLine/OrderCollaborator/OrderEvent (all
+  // onDelete: Cascade on order) never fire, so the order's full history survives its own deletion
+  // and stays visible via GET /orders/:id and /orders/:id/timeline, just hidden from every normal
+  // active-order query (list, mine, export, dashboard, alerts, table occupancy).
+  deletedAt             DateTime?
+  deletedById           String?
+  deletedBy             User?       @relation("OrderDeletedBy", fields: [deletedById], references: [id])
   createdAt             DateTime    @default(now())
   updatedAt             DateTime    @updatedAt
 
@@ -100,6 +110,7 @@ model Order {
   @@index([createdAt])
   @@index([primaryWaiterId])
   @@index([tableNumber])
+  @@index([deletedAt])
 }
 
 model OrderLine {

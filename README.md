@@ -28,7 +28,7 @@ npm install
 npm run dev
 ```
 
-Client runs on `http://localhost:5173`, server on `http://localhost:4000`.
+Client runs on `https://busy-project.vercel.app/`, server on `https://busyproject.onrender.com`.
 
 ## Deploying
 

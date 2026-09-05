@@ -1,235 +1,163 @@
 # Database Schema
 
-This is what's actually in `server/prisma/schema.prisma`. If you want to see the raw SQL that got
-run against Postgres, check `server/prisma/migrations/20260831094601_init/migration.sql`.
+What's actually in `server/prisma/schema.prisma`. Raw SQL for the first migration is in
+`server/prisma/migrations/20260831094601_init/migration.sql`.
 
-## The User table
+## The tables
 
-Right now there's just one table.
+### User
 
-| Field          | Type       | What it's for                                                    |
-|----------------|------------|--------------------------------------------------------------------|
-| `id`           | text (uuid) | the primary key Prisma generates this uuid on the client side, it's not a Postgres auto-increment number. |
-| `name`         | text        | just their display name, no length limit set.                    |
-| `email`        | text        | has to be unique Postgres itself enforces this with a unique index, not just app code. |
-| `passwordHash` | text        | the bcrypt-hashed password. We never store or log the real password anywhere. |
-| `role`         | enum        | either `manager` or `waiter`. *(Update, Task 9: there's a third value now see below.)* |
-| `createdAt`    | timestamp   | set automatically when the row is created.                       |
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | text (uuid) | Primary key, generated on the client side, not a Postgres auto-increment number. |
+| `name` | text | Display name, no length limit. |
+| `email` | text | Unique  enforced by the database with a unique index, not just app code. |
+| `passwordHash` | text | bcrypt hash. The real password is never stored or logged anywhere. |
+| `role` | enum (`Role`) | `admin`, `manager`, or `waiter`. A real Postgres enum, so the database can't hold anything else, even by accident. No account is ever created or promoted to `admin` through the API  the one admin account had its role set once, directly against the database, by a one-time script that was deleted right after. |
+| `isActive` | boolean | Deactivating a staff member sets this to false instead of deleting the row see "database vs. app" below for why a real delete usually isn't even possible. |
+| `createdAt` | timestamp | Set automatically on creation. |
 
-And the role enum itself:
+### MenuItem
 
-```prisma
-enum Role {
-  manager
-  waiter
-}
-```
+| Field | Type | Notes |
+|-------|------|-------|
+| `name` | text | |
+| `price` | exact decimal | Not a float, so money never rounds wrong. |
+| `isAvailable` | boolean | Whether it's currently orderable. |
+| `isArchived` | boolean | Soft delete hidden from the everyday menu, still in the database, can be brought back. |
+| `createdAt` / `updatedAt` | timestamp | |
 
-This is a real Postgres enum type, not just a text column with a check so it's genuinely
-impossible to put anything other than "manager" or "waiter" in that column, even by accident.
+### Order
 
-*(Update, Task 9: the enum gained a third value, `admin`, ranked above manager see
-`server/src/lib/roles.js` and `docs/architecture.md`'s Task 9 section for what that actually changes.
-`admin` is a real value the database will happily store, but the application layer never assigns it
-through any endpoint the sole admin account got its role set directly, by a one-time script run
-against the database once, never through the API.)*
+| Field | Type | Notes |
+|-------|------|-------|
+| `tableNumber` | integer | Plain number, not a foreign key to `Table` see below. |
+| `status` | enum (`OrderStatus`) | `placed`, `accepted`, `preparing`, `ready`, `served`, `cancelled`. |
+| `primaryWaiterId` | text | The waiter who created it. |
+| `isArchived` | boolean | Hides an order from the default active queue without touching its history. |
+| `alertAcknowledgedAt` / `alertAcknowledgedById` | timestamp / text, nullable | When a slow-order alert was last acknowledged, and by whom. Never cleared once set an alert "reappearing" just means enough time has passed since this timestamp. |
+| `deletedAt` / `deletedById` | timestamp / text, nullable | Set instead of an actual row delete when an order is "deleted." The order, its lines, its collaborators, and its full history all stay in the database every normal listing query just excludes rows where `deletedAt` isn't null. |
+| `createdAt` / `updatedAt` | timestamp | |
 
-## The Menu Item table (added in Task 2)
+### OrderLine
 
-Managers can add things to the menu now. Each menu item has:
+| Field | Type | Notes |
+|-------|------|-------|
+| `orderId` / `menuItemId` | text | |
+| `quantity` | integer | |
+| `specialInstructions` | text, nullable | |
+| `unitPrice` | exact decimal | The menu item's price at the moment this line was added not whatever it costs now. See "denormalized" below. |
+| `status` | enum (`LineStatus`) | `active` or `void`. A real enum, not a boolean, since a voided line still needs to show its `voidReason`. |
+| `voidReason` | text, nullable | Required whenever a line is voided; never deleted, just marked void so there's a record. |
+| `createdAt` | timestamp | |
 
-- a name
-- a price (stored as an exact number, not a rough decimal, so money never gets rounded wrong)
-- whether it's currently available to order or not
-- whether it's been archived (basically hidden, but not deleted I kept it in the database so old
-  orders that used it still make sense)
-- when it was created and when it was last changed
+### OrderCollaborator
 
-Nothing gets deleted for real here. Archiving just hides an item from the everyday menu list, but a
-manager can still look at archived items and bring one back if they change their mind.
+A join row: "this waiter is attached to this order." `orderId` + `waiterId` together are the primary
+key, so the database itself won't allow the same waiter added twice to the same order no app-side
+check needed for that part. Has an `addedAt` timestamp.
 
-## The Order table and Order Line table (added in Task 2)
+### Table
 
-An order belongs to one table in the restaurant and one waiter (whoever created it). It also has a
-status — more on that below, since Task 3 built out the whole rules around that.
+A simple list a manager maintains: `number` (unique, same pattern as `User.email`), `isArchived`
+(soft delete, same as `MenuItem`), `createdAt`. No foreign key points at it, and it doesn't point
+one back at `Order` either.
 
-Each order can have many order lines, and each line is basically "this many of this menu item, with
-this note." A line remembers the price the item had at the exact moment it was added to the order
-not whatever the menu item costs right now. That way, if a manager changes a price later, old orders
-still show what the customer actually agreed to pay at the time.
+### OrderEvent
 
-A line can also be voided (basically cancelled) with a reason, if a waiter added the wrong thing by
-mistake or a customer changed their mind. Voided lines never get removed from the database either
-they just get marked as voided so there's a record of what happened, and they stop counting toward
-the order's total.
+The audit trail one row per status change, line added, line voided, note, or order deletion.
 
-## Relations between tables
-
-None yet there's only the one table so far. This will obviously grow once menu items and orders
-show up.
-
-That was true back when there was only the User table. Since Task 2, a few real connections exist
-now:
-
-- One waiter can create many orders.
-- One order can have many order lines.
-- One menu item can show up on many order lines (since lots of orders can include the same dish).
-
-Also worth knowing: if an order ever gets deleted, all of its lines get deleted along with it
-automatically I don't have to clean those up by hand, the database takes care of it.
-
-## The OrderCollaborator table (added in Task 4)
-
-Lets more than one waiter act on the same order. Each row just says "this waiter is attached to this
-order":
-
-- `orderId` and `waiterId` together form the primary key a waiter can only be attached to the same
-  order once, and the database itself won't allow a duplicate row, no app-side check needed for that
-  part.
-- `addedAt` when they were added.
-
-If the order gets deleted, its collaborator rows get deleted along with it automatically (same
-cascading behavior as order lines).
-
-## The Table table (added in Task 5)
-
-A simple standalone list a manager maintains:
-
-- `number` has to be unique, enforced by the database with a unique index, same pattern as email
-  on the User table.
-- `isArchived`same "soft delete" idea as menu items. Removing a table just hides it, it doesn't
-  delete the row.
-- `createdAt`.
-
-This table doesn't have any foreign key pointing at it, and nothing points a foreign key back at
-`Order` either `Order.tableNumber` is still just a plain integer, unrelated at the database level
-to this new table. Whether a table is "occupied" gets worked out by comparing `Table.number` against
-the `tableNumber` on any order that's still open that comparison happens in the code, not as a
-database relationship.
-
-## The OrderEvent table (added in Task 13)
-
-The audit trail. One row per thing that happened to an order — a status change, a line added, a
-line voided, a note, or (see below) the order being deleted:
-
-- `eventType` a real Postgres enum (`status_change`, `line_added`, `line_voided`, `note`,
-  `order_deleted`), same "the database physically can't store garbage here" reasoning as `Role`.
-- `oldValue`/`newValue` free-text, meaning depends on `eventType` (e.g. the old/new status for a
-  `status_change`, or the item description for a `line_added`).
-- `note` used for a voided line's reason or a standalone note's text.
-- `actorId` who did it nullable, because the one automated actor in this app (the auto-clear sweep,
-  Task 14) isn't a person and has nobody to attribute the event to. A null actor renders as
-  "Automatically cancelled" in the UI instead of a name.
-- `createdAt`.
+| Field | Type | Notes |
+|-------|------|-------|
+| `eventType` | enum (`EventType`) | `status_change`, `line_added`, `line_voided`, `note`, `order_deleted`. |
+| `oldValue` / `newValue` | text, nullable | Meaning depends on `eventType` e.g. old/new status, or an item description. |
+| `note` | text, nullable | A voided line's reason, or a standalone note's text. |
+| `actorId` | text, nullable | Who did it. Nullable because the one automated actor in this app (the auto-clear sweep) isn't a person; a null actor renders as "Automatically cancelled" in the UI. |
+| `createdAt` | timestamp | |
 
 Every write to this table goes through one helper (`logEvent`), always inside the same transaction
-as the change it's recording. Nothing in the app ever calls `.update`/`.delete`/`.deleteMany` on it
-— see decision #48. `OrderLine.status` is likewise a real enum now (`LineStatus`: `active`/`void`),
-not a boolean, since a voided line still needs to render its `voidReason`.
+as the change it's recording. No code path ever calls `.update`/`.delete`/`.deleteMany` on it.
 
-## Alert-related fields on Order (added in Task 14)
+### Notification
 
-- `alertAcknowledgedAt`/`alertAcknowledgedById` when an alerting order was last acknowledged, and
-  by whom. Never cleared once set — an alert "reappearing" just means enough time has passed since
-  this timestamp (see `ALERT_REAPPEAR_MINUTES`), not a new column being flipped.
+One row per user per thing they need to know about today, only the auto-clear sweep cancelling
+one of their orders. `userId`, an optional `orderId`, a `message`, and a nullable `readAt` set the
+moment the recipient's browser polls it and shows it as a toast, so it can't fire twice.
 
-These deliberately live as plain columns on `Order`, not as `OrderEvent` rows — decision #53 covers
-why acknowledging an alert isn't part of the Task 13 audit timeline.
+## One-to-many vs. many-to-many
 
-## The Notification table (added in Task 15)
+Everything except one relationship is one-to-many:
 
-A personal inbox row, one per user per thing they need to know about (today, only the auto-clear
-sweep cancelling one of their orders):
+- One waiter → many orders (`primaryWaiterId`).
+- One order → many order lines.
+- One menu item → many order lines (the same dish shows up on lots of orders).
+- One order → many events.
+- One user → many notifications.
 
-- `userId`/`orderId` who it's for, and which order it's about (`orderId` optional, so this doesn't
-  become order-specific forever).
-- `message` the actual text.
-- `readAt` nullable; set the moment the recipient's browser polls and shows it as a toast, so it
-  can't fire twice.
+The one many-to-many relationship is waiters and orders, through `OrderCollaborator`: a waiter can
+collaborate on any number of orders, and an order can have any number of collaborators. If an order
+gets deleted (a real row delete before the soft-delete change below existed, or in earlier stages
+of the schema), its lines and collaborator rows are removed automatically by the database, not
+cleaned up by hand.
 
-Polled from `GET /api/notifications/unread`, same trade-off as the alerts badge (decision #56):
-there's no websocket/SSE channel in this app, so "live" means "at most 30 seconds stale."
+## Database vs. app-enforced constraints, and why
 
-## Soft-delete fields on Order (added in a pre-deployment review)
+- **Role has to be a valid value** the database, via the `Role` enum; it physically can't store
+  anything else. Also checked in the controller before that, so a bad request gets a clean message
+  instead of a database error.
+- **Email has to be unique** the database's unique index. The app doesn't check first and then
+  create; it just tries to create, and catches the database's duplicate-key error to send back a
+  friendly message. Checking first would leave a small window where two signups could race each
+  other with the same email.
+- **Password length (at least 8 characters)** app-side only, since the database only ever sees
+  the hash, which has no meaningful "length" to check.
+- **Menu item prices can't be negative** app-side. Enforcing it in the database would mean
+  hand-editing the migration file every time; the code was already where every similar rule lived.
+- **Order status can only move forward one step at a time** app-side. The database will happily
+  store any of the six statuses; it has no idea what order they're supposed to happen in.
+- **Voiding a line needs a reason** app-side, rejected before it touches the database.
+- **Who's allowed to act on an order** (manager, primary waiter, or collaborator) app-side,
+  through one shared function. The database has no idea collaborators mean anything special; it
+  just stores the rows.
+- **A table has to exist and not already be occupied** before an order opens on it checked in the
+  code on every request, not just something the picker happens to prevent.
+- **A table can't be double-booked by two requests at the same instant** the database. The
+  occupancy check and the order creation run inside one transaction at Postgres's Serializable
+  isolation level, so Postgres itself detects the overlap and rejects the loser.
+- **Who can create which kind of account, reset whose password, or change anyone's role**
+  entirely app-side, through one shared rule. The database has no idea a manager and a waiter are in
+  a hierarchy.
+- **A logged-in request acts as whatever role the database currently says**, not whatever role was
+  true at login checked on every request, so a role change or deactivation takes effect
+  immediately instead of waiting for an existing session to expire.
+- **A CSV export cell that starts with a formula-triggering character** neutralized in the code
+  before it's written out. The database stores the original value untouched; this is purely an
+  export-time concern.
+- **An order can only be deleted while still `placed` or `accepted`** app-side, the same boundary
+  as cancelling. The database has no idea what "deleted" means here it's `deletedAt` being set,
+  never a real row delete.
 
-- `deletedAt`/`deletedById` set by `DELETE /api/orders/:id` instead of an actual row delete — see
-  decision #76. The order, its lines, its collaborators, and its `OrderEvent` history all stay in
-  the database exactly as they were; every normal query (the order list, `/mine`, CSV export, the
-  dashboard, alerts, table occupancy) just adds `deletedAt: null` to keep a deleted order out of
-  everyday view. `GET /orders/:id` and `GET /orders/:id/timeline` are the deliberate exception —
-  they keep working for a deleted order's id, which is the whole point of not hard-deleting it.
+## What's deliberately denormalized
 
-## Indexes added for search and sorting (added in Task 6)
+`OrderLine.unitPrice` stores a copy of the menu item's price at the moment the line was added,
+instead of always looking up the current `MenuItem.price`. If a manager changes a price later, old
+orders keep showing what the customer actually agreed to pay at the time the alternative (always
+joining to the live price) would silently rewrite history every time a price changed.
 
-Two indexes went on the Order table once the order list started supporting filtering and sorting by
-status and by placed date: `@@index([status])` and `@@index([createdAt])`. Without them, every
-filtered or sorted request would need a full table scan to find matches; with a lot of orders sitting
-in the table, that's the difference between a search that feels instant and one that doesn't.
+## What would break first at 100x the data
 
-## More indexes, found missing during the security audit (added in Task 8)
-
-Four more foreign-key columns turned out to have no index at all, despite being exactly the columns
-filtered on in the app's most frequently run queries: `Order.primaryWaiterId` and `Order.tableNumber`,
-`OrderLine.orderId`, and `OrderCollaborator.waiterId`. The first two are hit on every order-visibility
-check and every table-occupancy check; the third on every single order-detail fetch; the fourth is
-the other half of the same visibility check `primaryWaiterId` covers, for orders someone's a
-collaborator on rather than primary on. None of this was wrong, exactly Prisma doesn't add these
-automatically unless you ask just an easy thing to overlook until a query plan actually gets slow.
-
-## Where do I check things — the app or the database?
-
-- **Role has to be valid**: checked in both places on purpose. The database physically can't store
-  a bad role because of the enum type. But I also check it in the controller before it even gets
-  that far, so a bad request comes back as a clean "role must be manager or waiter" message instead
-  of some ugly database error.
-- **Email has to be unique**: enforced by the database's unique index. On the app side, I don't
-  bother checking "does this email already exist" before creating I just try to create it, and if
-  Postgres complains (error code P2002), I catch that and send back a friendly "email already
-  registered" message. Checking first and then creating would actually leave a small window where
-  two signups could sneak through with the same email at the same time.
-- **Password needs to be at least 8 characters**: this one's app-side only, since the database only
-  ever sees the hashed version, which doesn't really have a "length" to check.
-- **Menu item prices can't be negative**: I check this in the code, not the database. I thought
-  about making the database itself refuse a negative price, but that would have meant hand-editing
-  the migration file every time, which felt fragile and easy to forget. Checking it in the code
-  keeps everything in one place and gives a clear error message instead of a confusing database
-  error.
-- **Order status can only move forward one step at a time, and only in the right order**: this is
-  all checked in the code before anything gets saved. The database will happily store any of the six
-  statuses, but it has no idea which order they're supposed to happen in that logic lives in the
-  code.
-- **Voiding a line always needs a reason**: checked in the code if you don't type a reason, the
-  request gets rejected before it ever touches the database.
-- **Who's allowed to act on an order (manager, primary waiter, or a collaborator)**: checked in the
-  code, through one shared function instead of being copy-pasted into every route. The database has
-  no idea collaborators mean anything special; it just stores the rows.
-- **A table has to actually exist and not already be occupied before an order can be opened on it**:
-  checked in the code, in `POST /api/orders`, every single time not just something the frontend's
-  table picker happens to prevent.
-- **What a waiter can see in the order list vs. what they filtered for**: checked in the code — the
-  visibility rule and any filters the caller passed (status, waiter, date, table search) are merged
-  into the exact same `where` clause, so there's no way to filter your way into seeing an order you
-  couldn't otherwise see.
-- **Table-number text search**: mostly the database's job a small raw SQL query does the actual
-  substring match (something a plain `where` clause can't express against a number column), but it's
-  written with Prisma's parameterized `$queryRaw`, so user input never gets concatenated into the SQL
-  string directly.
-- **A table can't be double-booked by two requests arriving at the same instant**: enforced by the
-  database, not the code the occupancy check and the order creation run inside one Serializable
-  transaction, so Postgres itself refuses to let two overlapping transactions both succeed, rather
-  than the application trying to catch a race it can't actually see.
-- **Who's allowed to create which kind of account, reset whose password, or change anyone's role**:
-  entirely app-side, through one shared `canManage(callerRole, targetRole)` rule the database has
-  no idea a manager and a waiter are in a hierarchy, it just stores whatever role value it's given
-  (subject to the enum, per above).
-- **A logged-in request is acting as the role the database currently says, not whatever role was
-  true when they logged in**: checked on every single request now, not just at login — `requireAuth`
-  re-reads the user's row before anything else runs, specifically so a role change (or a deleted
-  account) takes effect immediately instead of waiting for the existing token to expire.
-- **A CSV export cell that starts with a formula-triggering character** (`=`, `+`, `-`, `@`, tab):
-  neutralized in the code before it's written out, by prefixing it with a literal `'`  Excel/Sheets
-  then render it as text instead of evaluating it. The database stores the original value untouched;
-  this is purely an export-time concern.
-- **An order can only be deleted while it's still `placed` or `accepted`**: checked in the code,
-  the same boundary as cancelling. The database has no idea what "deleted" even means here — it's
-  never a real row delete, just `deletedAt`/`deletedById` being set (see decision #76).
+The docs don't directly answer this for the app as a whole, but they do say what happens to specific
+queries without the right indexes which is the concrete version of the same question. Two indexes
+went on `Order` (`status`, `createdAt`) once the order list needed to filter and sort by them:
+without an index, a filtered or sorted request needs a full table scan, which is the difference
+between a search that feels instant and one that doesn't once there are a lot of rows. A later audit
+found four more missing indexes on columns that get hit on every order-visibility check, every
+table-occupancy check, and every order-detail fetch: `Order.primaryWaiterId`, `Order.tableNumber`,
+`OrderLine.orderId`, `OrderCollaborator.waiterId`. All four were added. Nothing was wrong with the
+queries themselves Prisma doesn't add indexes automatically, so it's an easy thing to miss until a
+query plan actually gets slow. One other real ceiling shows up in the docs, though not framed as a "100x data" answer: Supabase's
+pooler connection limit was hit once during testing (capped at 15 connections in session mode), when
+a leftover server process held a connection open. That's a concurrency/connection limit, not
+something that scales with row count specifically, but it's the one other documented resource ceiling
+in this project. Beyond that, there's no documented answer for what else would be first to break at
+real data scale not filled in here rather than guessed at.
